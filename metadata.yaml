@@ -1,6 +1,6 @@
-name: mccloud_img
-desc: 一个从API获取图片的插件，支持自定义API地址。使用 /img 获取图片。禁止用于非法用途。 
-help: 使用 /img 获取图片。请在配置中设置正确的API地址。
+name: bot_vod
+desc: 一个从API获取图片的插件，支持自定义API地址。使用 /vod 获取图片。禁止用于非法用途。 
+help: 使用 /vod 获取图片。请在配置中设置正确的API地址。
 version: v1.0 # 插件版本号
-author: MC云-小馒头
-repo: https://github.com/MCYUNIDC/mccloud_img
+author: appale
+repo: https://github.com/akjybbs/bot_vod
