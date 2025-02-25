@@ -16,6 +16,8 @@ class SetuPlugin(Star):
         if not self.api_url:
             yield event.plain_result("\n请先在配置文件中设置API地址")
             return
-        yield event.plain_result(f"\n{self.api_url}?ac=videolist&wd={text}")
+        self.url = self.api_url+ "?ac=videolist&wd=" + text
+        
+        # yield event.plain_result(f"\n{self.api_url}?ac=videolist&wd={text}")
 
  
