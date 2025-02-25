@@ -2,6 +2,8 @@ from astrbot.api.message_components import *
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 import aiohttp
+import json
+import xml.etree.ElementTree as ET
 import urllib.parse
 import logging
 
@@ -22,30 +24,31 @@ class SetuPlugin(Star):
             return
         
         # 对用户输入进行URL编码
-        # encoded_text = urllib.parse.quote(text)
-        query_url = f"{self.api_url}?ac=videolist&wd={text}"#encoded_
+        encoded_text = urllib.parse.quote(text)
+        query_url = f"{self.api_url}?ac=videolist&wd={encoded_text}"
         logger.info(f"Querying API with URL: {query_url}")
 
         try:
             # 使用aiohttp进行异步HTTP请求
             async with aiohttp.ClientSession() as session:
                 async with session.get(query_url, timeout=15) as response:
+                    content_type = response.headers.get('Content-Type', '').lower()
+                    
                     if response.status == 200:
-                        data = await response.json()
-                        if data and 'list' in data:
-                            # 处理并格式化返回结果
-                            video_list = data['list']
-                            if not video_list:
-                                yield event.plain_result("\n没有找到相关视频。")
-                                return
-
-                            result = "\n".join([
-                                f"标题: {item['vod_name']}, 链接: {item['vod_play_url']}"
-                                for item in video_list
-                            ])
+                        if 'json' in content_type:
+                            data = await response.json()
+                            result = self.process_json_response(data)
+                        elif 'xml' in content_type:
+                            data = await response.text()
+                            result = self.process_xml_response(data)
+                        else:
+                            yield event.plain_result("\n不支持的响应格式，请检查API文档。")
+                            return
+                        
+                        if result:
                             yield event.plain_result(f"\n查询结果:\n{result}")
                         else:
-                            yield event.plain_result("\nAPI响应格式错误，请检查API文档。")
+                            yield event.plain_result("\n没有找到相关视频。")
                     else:
                         yield event.plain_result(f"\n请求失败，状态码: {response.status}")
         except aiohttp.ClientError as e:
@@ -57,3 +60,31 @@ class SetuPlugin(Star):
         except Exception as e:
             logger.error(f"Unexpected error: {e}")
             yield event.plain_result("\n发生未知错误，请稍后再试。")
+
+    def process_json_response(self, data):
+        if not data or 'list' not in data:
+            return None
+
+        video_list = data['list']
+        if not video_list:
+            return None
+
+        return "\n".join([
+            f"标题: {item['vod_name']}, 链接: {item['vod_play_url']}"
+            for item in video_list
+        ])
+
+    def process_xml_response(self, data):
+        try:
+            root = ET.fromstring(data)
+            video_list = root.findall(".//video")
+            if not video_list:
+                return None
+
+            return "\n".join([
+                f"标题: {video.find('name').text}, 链接: {video.find('play_url').text}"
+                for video in video_list
+            ])
+        except ET.ParseError as e:
+            logger.error(f"XML parse error: {e}")
+            return None
