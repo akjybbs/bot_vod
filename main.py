@@ -22,8 +22,8 @@ class SetuPlugin(Star):
             return
         
         # 对用户输入进行URL编码
-        encoded_text = urllib.parse.quote(text)
-        query_url = f"{self.api_url}?ac=videolist&wd={encoded_text}"
+        # encoded_text = urllib.parse.quote(text)
+        query_url = f"{self.api_url}?ac=videolist&wd={text}"#encoded_
         logger.info(f"Querying API with URL: {query_url}")
 
         try:
