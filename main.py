@@ -56,7 +56,7 @@ class SetuPlugin(Star):
                                 return
                         else:
                             logger.error(f"不支持的响应格式: {content_type}, 响应体: {response_text}")
-                            yield event.plain_result("\n不支持的响应格式，请检查API文档。")
+                            yield event.plain_result(f"不支持的响应格式: {content_type}, 响应体: {response_text}")
                             return
                         
                         if result:
