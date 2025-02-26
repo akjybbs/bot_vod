@@ -5,7 +5,7 @@ import aiohttp
 import urllib.parse
 from bs4 import BeautifulSoup
 
-@register("bot_vod", "appale", "从API获取视频地址。使用 /vod 电影名", "1.0")
+@register("bot_vod", "appale", "从API获取视频地址。使用 /vod 电影名。请勿使用非法接口！", "1.0")
 class SetuPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -32,7 +32,7 @@ class SetuPlugin(Star):
                     if response.status == 200:
                         result = self.process_html_response(response_text)
                         if result:
-                            yield event.plain_result(f"\n查询结果:\n{result}")
+                            yield event.plain_result(f"\n查询结果:\n{result}\n********请复制播放地址粘贴到浏览器地址栏中进行观看观看！！！")
                         else:
                             yield event.plain_result("\n没有找到相关视频。")
                     elif response.status == 404:
@@ -47,14 +47,13 @@ class SetuPlugin(Star):
         video_items = soup.select('rss list video')  # 根据实际HTML结构调整选择器
 
         results = []
-        for index, video in enumerate(video_items[:5], start=1):  # 只取前5条结果
+        for index, video in enumerate(video_items[:8], start=1):  # 只取前8条结果
             name = video.select_one('name').text if video.select_one('name') else '未知标题'
             dds = video.select('dl > dd')
             for dd in dds:
                 urls = dd.text.split('#')
                 for url in urls:
                     if url.strip() != '':
-                        js = '第' + str(urls.index(url) + 1) + '集' if len(urls) > 1 else '完整版'
-                        results.append(f"{index}. 标题: {name} - {js}, 链接: {url}\n")
+                        results.append(f"{index}. 标题: {name}, 链接: {url}\n")
 
         return "\n".join(results) if results else None
