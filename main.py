@@ -6,6 +6,7 @@ import json
 import xml.etree.ElementTree as ET
 import urllib.parse
 import logging
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ class SetuPlugin(Star):
         super().__init__(context)
         self.config = config
         self.api_url = config.get("api_url", "")
+        self.api_token = config.get("api_token", "")  # 如果需要身份验证，请在这里配置API密钥
 
     @filter.command("vod")
     async def vod(self, event: AstrMessageEvent, text: str):
@@ -29,10 +31,14 @@ class SetuPlugin(Star):
         query_url = f"{self.api_url}?ac=videolist&wd={encoded_text}"
         logger.info(f"查询API的URL: {query_url}")
 
+        headers = {}
+        if self.api_token:
+            headers['Authorization'] = f'Bearer {self.api_token}'
+        
         try:
             # 使用aiohttp进行异步HTTP请求
             async with aiohttp.ClientSession() as session:
-                async with session.get(query_url, timeout=15) as response:
+                async with session.get(query_url, headers=headers, timeout=15) as response:
                     content_type = response.headers.get('Content-Type', '').lower()
                     response_text = await response.text()
                     logger.info(f"响应的Content-Type: {content_type}")
@@ -55,9 +61,8 @@ class SetuPlugin(Star):
                                 yield event.plain_result("\nAPI响应解析失败，请检查API文档。")
                                 return
                         elif 'html' in content_type.split(';')[0]:
-                            logger.error(f"不支持的响应格式: {content_type}, 响应体: {response_text}")
-                            yield event.plain_result("\nAPI返回了HTML内容，请检查请求是否正确。")
-                            return
+                            logger.info(f"API返回了HTML内容: {response_text}")
+                            result = self.process_html_response(response_text)
                         else:
                             logger.error(f"不支持的响应格式: {content_type}, 响应体: {response_text}")
                             yield event.plain_result("\n不支持的响应格式，请检查API文档。")
@@ -67,6 +72,12 @@ class SetuPlugin(Star):
                             yield event.plain_result(f"\n查询结果:\n{result}")
                         else:
                             yield event.plain_result("\n没有找到相关视频。")
+                    elif response.status == 401:
+                        logger.error(f"请求被拒绝，状态码: {response.status}, 响应体: {response_text}")
+                        yield event.plain_result("\n请求被拒绝，请检查API密钥是否正确。")
+                    elif response.status == 404:
+                        logger.error(f"请求的资源不存在，状态码: {response.status}, 响应体: {response_text}")
+                        yield event.plain_result("\n请求的资源不存在，请检查请求路径是否正确。")
                     else:
                         logger.error(f"请求失败，状态码: {response.status}, 响应体: {response_text}")
                         yield event.plain_result(f"\n请求失败，状态码: {response.status}")
@@ -124,3 +135,17 @@ class SetuPlugin(Star):
         except ET.ParseError as e:
             logger.error(f"XML解析错误: {e}, 响应体: {data}")
             return None
+
+    def process_html_response(self, html_content):
+        soup = BeautifulSoup(html_content, 'html.parser')
+        # 这里根据实际的HTML结构来提取数据
+        # 示例：假设HTML中有表格形式的数据
+        results = []
+        for row in soup.select('table tr'):
+            columns = row.select('td')
+            if len(columns) >= 2:
+                title = columns[0].get_text(strip=True)
+                url = columns[1].select_one('a')['href']
+                results.append(f"标题: {title}, 链接: {url}")
+        
+        return "\n".join(results) if results else None
