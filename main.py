@@ -3,7 +3,6 @@ from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 import aiohttp
 import json
-import xml.etree.ElementTree as ET
 import urllib.parse
 import logging
 from bs4 import BeautifulSoup
@@ -42,22 +41,10 @@ class SetuPlugin(Star):
                     if response.status == 200:
                         result = None
                         if 'json' in content_type:
-                            try:
-                                data = json.loads(response_text)
-                                result = self.process_json_response(data)
-                            except json.JSONDecodeError as e:
-                                logger.error(f"JSON解析错误: {e}, 响应体: {response_text}")
-                                yield event.plain_result("\nAPI响应解析失败，请检查API文档。")
-                                return
+                            result = self.process_json_response(response_text)
                         elif 'xml' in content_type.split(';')[0]:
-                            try:
-                                result = self.process_xml_response(response_text)
-                            except ET.ParseError as e:
-                                logger.error(f"XML解析错误: {e}, 响应体: {response_text}")
-                                yield event.plain_result("\nAPI响应解析失败，请检查API文档。")
-                                return
+                            result = self.process_xml_response(response_text)
                         elif 'html' in content_type.split(';')[0]:
-                            logger.info(f"API返回了HTML内容: {response_text}")
                             result = self.process_html_response(response_text)
                         else:
                             logger.error(f"不支持的响应格式: {content_type}, 响应体: {response_text}")
@@ -82,63 +69,77 @@ class SetuPlugin(Star):
             yield event.plain_result("\n发生未知错误，请稍后再试。")
 
     def process_json_response(self, data):
-        if not data or 'list' not in data:
-            logger.error("JSON响应中缺少必要的字段: list")
-            return None
-
-        video_list = data['list']
-        if not video_list:
-            logger.error("JSON响应中的视频列表为空")
-            return None
-
-        results = []
-        for item in video_list:
-            if 'vod_name' in item and 'vod_play_url' in item:
-                results.append(f"标题: {item['vod_name']}, 链接: {item['vod_play_url']}")
-            else:
-                logger.error(f"视频项缺少必要字段: {item}")
-
-        return "\n".join(results)
-
-    def process_xml_response(self, data):
         try:
-            root = ET.fromstring(data)
-            video_items = root.findall(".//video")
-            if not video_items:
-                logger.error("XML响应中未找到任何视频项")
-                return None
-
-            results = []
-            for video in video_items:
-                title = video.find('name').text if video.find('name') is not None else '未知标题'
-                # 查找包含视频链接的<dd>标签
-                dd_elements = video.findall('.//dd')
-                video_url = None
-                for dd in dd_elements:
-                    if dd.attrib.get('flag') == 'ckplayer':
-                        # 提取CDATA部分的内容
-                        video_url = dd.text.strip()
-                        break
-                if video_url:
-                    results.append(f"标题: {title}, 链接: {video_url}")
-                else:
-                    logger.error(f"视频项中未找到带有flag='ckplayer'的<dd>标签: {ET.tostring(video)}")
-            
-            return "\n".join(results) if results else None
-        except ET.ParseError as e:
-            logger.error(f"XML解析错误: {e}, 响应体: {data}")
+            jsondata = json.loads(data, strict=False)
+            if jsondata and 'list' in jsondata:
+                medialist = jsondata['list']
+                if len(medialist) > 0:
+                    info = medialist[0]
+                    playfrom = info["vod_play_from"]
+                    playnote = '$$$'
+                    playfromlist = playfrom.split(playnote)
+                    playurl = info["vod_play_url"]
+                    playurllist = playurl.split(playnote)
+                    sourcelen = len(playfromlist)
+                    results = []
+                    for i in range(sourcelen):
+                        urllist = []
+                        urlstr = playurllist[i]
+                        jjlist = urlstr.split('#')
+                        n = 0
+                        for jj in jjlist:
+                            n += 1
+                            if jj.strip() != '':
+                                jjinfo = jj.split('$')
+                                js = ''
+                                jsdz = ''
+                                if len(jjinfo) == 1:
+                                    js = f'第{n}集'
+                                    jsdz = jjinfo[0]
+                                elif len(jjinfo) == 2:
+                                    js = jjinfo[0]
+                                    jsdz = jjinfo[1]
+                                if jsdz.find('.m3u8') > 0 or jsdz.find('.mp4') > 0:
+                                    urllist.append({'title': js, 'url': jsdz})
+                        if len(urllist) > 0:
+                            results.append(f"来源: {playfromlist[i]}\n")
+                            for media in urllist:
+                                results.append(f"标题: {media['title']}, 链接: {media['url']}\n")
+                    return "\n".join(results) if results else None
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON解析错误: {e}, 响应体: {data}")
             return None
 
     def process_html_response(self, html_content):
         soup = BeautifulSoup(html_content, 'html.parser')
-        # 根据实际的HTML结构来提取数据
-        # 示例：假设HTML中有表格形式的数据
-        results = []
-        for row in soup.select('table tr'):
-            columns = row.select('td')
-            if len(columns) >= 2:
-                title = columns[0].get_text(strip=True)
-                url = columns[1].select_one('a')['href']
-                results.append(f"标题: {title}, 链接: {url}")
-        
-        return "\n".join(results) if results else None
+        selector = soup.select('rss > list > video')
+        if len(selector) > 0:
+            info = selector[0]
+            nameinfo = info.select('name')[0]
+            name = nameinfo.text
+            picinfo = info.select('pic')[0]
+            pic = picinfo.text
+            actorinfo = info.select('actor')[0]
+            actor = '演员:' + actorinfo.text.strip()
+            desinfo = info.select('des')[0]
+            des = '简介:' + desinfo.text.strip()
+            dds = info.select('dl > dd')
+            results = []
+            for dd in dds:
+                ddflag = dd.get('flag')
+                ddinfo = dd.text
+                m3u8list = []
+                if ddflag.find('m3u8') >= 0:
+                    urllist = ddinfo.split('#')
+                    n = 1
+                    for source in urllist:
+                        urlinfo = source.split('$')
+                        if len(urlinfo) == 1:
+                            m3u8list.append({'title': f'第{n}集', 'url': ddinfo})
+                        else:
+                            m3u8list.append({'title': urlinfo[0], 'url': urlinfo[1]})
+                        n += 1
+                    results.append(f"来源: {ddflag}\n")
+                    for media in m3u8list:
+                        results.append(f"标题: {media['title']}, 链接: {media['url']}\n")
+            return "\n".join(results) if results else None
