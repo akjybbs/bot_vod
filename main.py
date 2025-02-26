@@ -54,9 +54,13 @@ class SetuPlugin(Star):
                                 logger.error(f"XML解析错误: {e}, 响应体: {response_text}")
                                 yield event.plain_result("\nAPI响应解析失败，请检查API文档。")
                                 return
+                        elif 'html' in content_type.split(';')[0]:
+                            logger.error(f"不支持的响应格式: {content_type}, 响应体: {response_text}")
+                            yield event.plain_result("\nAPI返回了HTML内容，请检查请求是否正确。")
+                            return
                         else:
                             logger.error(f"不支持的响应格式: {content_type}, 响应体: {response_text}")
-                            yield event.plain_result(f"不支持的响应格式: {content_type}, 响应体: {response_text}")
+                            yield event.plain_result("\n不支持的响应格式，请检查API文档。")
                             return
                         
                         if result:
