@@ -2,7 +2,6 @@ from astrbot.api.message_components import *
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 import aiohttp
-import json
 import urllib.parse
 import logging
 from bs4 import BeautifulSoup
@@ -35,22 +34,11 @@ class SetuPlugin(Star):
             # 使用aiohttp进行异步HTTP请求
             async with aiohttp.ClientSession() as session:
                 async with session.get(query_url, timeout=15) as response:
-                    content_type = response.headers.get('Content-Type', '').lower()
                     response_text = await response.text()
-                    logger.info(f"响应的Content-Type: {content_type}")
                     logger.info(f"响应体: {response_text}")  # 直接输出响应体
 
                     if response.status == 200:
-                        result = None
-                        if 'json' in content_type:
-                            result = self.process_json_response(response_text)
-                        elif 'xml' in content_type.split(';')[0]:
-                            result = self.process_rss_response(response_text)
-                        else:
-                            logger.error(f"不支持的响应格式: {content_type}, 响应体: {response_text}")
-                            yield event.plain_result("\n不支持的响应格式，请检查API文档。")
-                            return
-                        
+                        result = self.process_html_response(response_text)
                         if result:
                             yield event.plain_result(f"\n查询结果:\n{result}")
                         else:
@@ -68,26 +56,22 @@ class SetuPlugin(Star):
             logger.error(f"未知错误: {e}")
             yield event.plain_result("\n发生未知错误，请稍后再试。")
 
-    def process_json_response(self, data):
-        # 处理JSON响应的逻辑（如果需要）
-        pass
-
-    def process_rss_response(self, xml_data):
+    def process_html_response(self, html_content):
         try:
-            soup = BeautifulSoup(xml_data, 'xml')
-            video_items = soup.find_all('video')
+            soup = BeautifulSoup(html_content, 'html.parser')
+            video_items = soup.select('rss list video')  # 根据实际HTML结构调整选择器
             if not video_items:
-                logger.error("XML响应中未找到任何视频项")
+                logger.error("HTML响应中未找到任何视频项")
                 return None
 
             results = []
             for video in video_items:
-                name = video.find('name').text if video.find('name') is not None else '未知标题'
-                pic = video.find('pic').text if video.find('pic') is not None else ''
-                actor = video.find('actor').text if video.find('actor') is not None else ''
-                des = video.find('des').text if video.find('des') is not None else ''
+                name = video.select_one('name').text if video.select_one('name') else '未知标题'
+                pic = video.select_one('pic').get('src') if video.select_one('pic') else ''
+                actor = video.select_one('actor').text if video.select_one('actor') else ''
+                des = video.select_one('des').text if video.select_one('des') else ''
 
-                dds = video.find_all('dd')
+                dds = video.select('dl > dd')
                 for dd in dds:
                     ddflag = dd.get('flag', '')
                     urls = dd.text.split('#')
@@ -98,5 +82,5 @@ class SetuPlugin(Star):
 
             return "\n".join(results) if results else None
         except Exception as e:
-            logger.error(f"RSS解析错误: {e}, 响应体: {xml_data}")
+            logger.error(f"HTML解析错误: {e}, 响应体: {html_content}")
             return None
