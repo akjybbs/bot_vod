@@ -1,6 +1,6 @@
-name: bot_vod
-desc: 一个从API获取电影播放地址的插件，支持自定义API地址。使用 /vod 电影名。请勿使用非法接口。 
-help: 使用 /vod 电影名。搜索你要看的电影。请在配置中设置正确的API地址。
+name: bot_vod@视频
+desc: 一个从API获取电影播放地址的插件，支持自定义API地址。
+help: 使用 /vod 或 /vodd +电影名。搜索你要看的电影。请在配置中设置正确的API地址。
 version: v1.0 # 插件版本号
 author: appale
 repo: https://github.com/akjybbs/bot_vod
