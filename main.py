@@ -27,6 +27,7 @@ class SetuPlugin(Star):
         encoded_text = urllib.parse.quote(text)
         query_url = f"{self.api_url}?ac=videolist&wd={encoded_text}"
         logger.info(f"Querying API with URL: {query_url}")
+        yield event.plain_result(f"\n{query_url}")
 
         try:
             # 使用aiohttp进行异步HTTP请求
