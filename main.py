@@ -35,7 +35,7 @@ class SetuPlugin(Star):
                     content_type = response.headers.get('Content-Type', '').lower()
                     response_text = await response.text()
                     logger.info(f"Response Content-Type: {content_type}")
-                    logger.info(f"Response Body: {response_text[:500]}")  # 只打印前500个字符
+                    logger.info(f"Response Body (first 500 characters): {response_text[:500]}")  # 只打印前500个字符
                     
                     if response.status == 200:
                         if 'json' in content_type:
@@ -48,8 +48,7 @@ class SetuPlugin(Star):
                                 return
                         elif 'xml' in content_type.split(';')[0]:
                             try:
-                                data = response_text
-                                result = self.process_xml_response(data)
+                                result = self.process_xml_response(response_text)
                             except ET.ParseError as e:
                                 logger.error(f"XML parse error: {e}")
                                 yield event.plain_result("\nAPI响应解析失败，请检查API文档。")
