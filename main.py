@@ -27,13 +27,13 @@ class SetuPlugin(Star):
         encoded_text = urllib.parse.quote(text)
         query_url = f"{self.api_url}?ac=videolist&wd={encoded_text}"
         logger.info(f"Querying API with URL: {query_url}")
-        yield event.plain_result(f"\n{query_url}")
 
         try:
             # 使用aiohttp进行异步HTTP请求
             async with aiohttp.ClientSession() as session:
                 async with session.get(query_url, timeout=15) as response:
                     content_type = response.headers.get('Content-Type', '').lower()
+                    logger.info(f"Response Content-Type: {content_type}")
                     
                     if response.status == 200:
                         if 'json' in content_type:
@@ -43,6 +43,7 @@ class SetuPlugin(Star):
                             data = await response.text()
                             result = self.process_xml_response(data)
                         else:
+                            logger.error(f"Unsupported Content-Type: {content_type}")
                             yield event.plain_result("\n不支持的响应格式，请检查API文档。")
                             return
                         
