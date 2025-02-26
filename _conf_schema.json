@@ -1,5 +1,5 @@
 {
-    "api_url": {
+    "api_url_vod": {
         "description": "电影API地址，仅支持xml",
         "type": "string",
         "hint": "填写获取第一个电影API地址",
