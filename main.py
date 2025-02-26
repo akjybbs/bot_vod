@@ -10,8 +10,9 @@ class SetuPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
-        self.api_url = config.get("api_url", "")
-
+        self.api_url_vod = config.get("api_url_vod", "")
+        self.api_url_18 = config.get("api_url_18", "")
+        
     @filter.command("vod")
     async def vod(self, event: AstrMessageEvent, text: str):
         # 检查是否配置了API URL
