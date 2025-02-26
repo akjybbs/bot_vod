@@ -5,77 +5,93 @@ import aiohttp
 import urllib.parse
 from bs4 import BeautifulSoup
 
-@register("bot_vod", "appale", "从API获取视频地址。使用 /vod 或 /vodd 电影名。请勿使用非法接口！", "1.0")
-class SetuPlugin(Star):
+@register("bot_vod", "appale", "从API获取视频地址（使用 /vod 或 /vodd + 电影名）", "1.1")
+class VideoSearchPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
         self.api_url_vod = config.get("api_url_vod", "")
         self.api_url_18 = config.get("api_url_18", "")
-    
-    async def _common_vod_handler(self, event, api_url, text):
-        """通用视频处理逻辑"""
+
+    async def _common_handler(self, event, api_url, keyword):
+        """通用请求处理核心逻辑"""
+        # 空API地址检查
         if not api_url:
-            yield event.plain_result("\n该服务未配置API地址")
+            yield event.plain_result("\n⚠️ 服务未正确配置，请联系管理员")
             return
 
-        encoded_text = urllib.parse.quote(text)
-        query_url = f"{api_url}?ac=videolist&wd={encoded_text}"
+        # URL编码处理
+        encoded_keyword = urllib.parse.quote(keyword)
+        query_url = f"{api_url}?ac=videolist&wd={encoded_keyword}"
 
         try:
+            # 异步HTTP请求
             async with aiohttp.ClientSession() as session:
                 async with session.get(query_url, timeout=15) as response:
+                    # HTTP状态码处理
                     if response.status != 200:
-                        yield event.plain_result(f"\n请求失败，状态码: {response.status}")
+                        yield event.plain_result(f"\n⚠️ 服务暂时不可用（状态码 {response.status}）")
                         return
-                    
-                    html_content = await response.text()
-                    result = self._process_html(html_content)
-                    
-                    if not result:
-                        yield event.plain_result("\n没有找到相关视频。")
-                        return
-                    
-                    # 组装最终响应
-                    msg = f"查询结果:\n{result}\n"
-                    msg += "          ************************\n"
-                    msg += "重要提示：\n请勿直接点击微信中的视频地址，微信会拦截！\n"
-                    msg += "1.手机端将复制的播放链接粘贴到浏览器地址栏中进行观看。\n"
-                    msg += "2.电脑端将复制的播放链接粘贴到播放器中观看！\n"
-                    msg += "         ************************"
-                    yield event.plain_result(msg)
-        
-        except aiohttp.ClientTimeout:
-            yield event.plain_result("\n请求超时，请稍后再试")
-        except Exception as e:
-            yield event.plain_result("\n发生未知错误，请稍后再试。")
 
-    def _process_html(self, html_content):
-        """HTML解析逻辑"""
+                    # 响应内容处理
+                    html_content = await response.text()
+                    parsed_result = self._parse_html(html_content)
+
+                    if not parsed_result:
+                        yield event.plain_result("\n🔍 未找到相关视频资源")
+                        return
+
+                    # 构建最终消息
+                    result_msg = [
+                        "📺 查询结果：",
+                        parsed_result,
+                        "\n" + "*" * 25,
+                        "💡 重要观看提示：",
+                        "1. 手机端：复制链接到浏览器地址栏打开",
+                        "2. 电脑端：使用专业播放器打开链接",
+                        "*" * 25
+                    ]
+                    yield event.plain_result("\n".join(result_msg))
+
+        except aiohttp.ClientTimeout:
+            yield event.plain_result("\n⏳ 请求超时，请稍后重试")
+        except Exception as e:
+            self.context.logger.error(f"视频查询异常: {str(e)}")
+            yield event.plain_result("\n❌ 服务暂时异常，请稍后再试")
+
+    def _parse_html(self, html_content):
+        """HTML解析专用方法"""
         soup = BeautifulSoup(html_content, 'html.parser')
         video_items = soup.select('rss list video')
-        
+
         results = []
-        for index, video in enumerate(video_items[:8], start=1):
-            name = video.select_one('name').text if video.select_one('name') else '未知标题'
-            dds = video.select('dl > dd')
+        for idx, item in enumerate(video_items[:8], 1):
+            # 提取标题
+            title = item.select_one('name').text.strip() if item.select_one('name') else "未知标题"
             
-            for dd in dds:
-                urls = dd.text.split('#')
-                for url in urls:
+            # 提取播放链接
+            dd_elements = item.select('dl > dd')
+            for dd in dd_elements:
+                for url in dd.text.split('#'):
                     if url.strip():
-                        results.append(f"{index}. 标题: {name}, 链接: {url}\n")
-        
+                        results.append(f"{idx}. 【{title}】\n   🎬 {url.strip()}")
+
         return "\n".join(results) if results else None
 
     @filter.command("vod")
-    async def vod_normal(self, event: AstrMessageEvent, text: str):
-        """普通视频查询"""
-        async for msg in self._common_vod_handler(event, self.api_url_vod, text):
+    async def search_normal(self, event: AstrMessageEvent, text: str):
+        """普通影视资源搜索"""
+        if not self.api_url_vod:
+            yield event.plain_result("\n🔧 普通视频服务未配置")
+            return
+        async for msg in self._common_handler(event, self.api_url_vod, text):
             yield msg
 
     @filter.command("vodd")
-    async def vod_adult(self, event: AstrMessageEvent, text: str):
-        """18+视频查询"""
-        async for msg in self._common_vod_handler(event, self.api_url_18, text):
+    async def search_adult(self, event: AstrMessageEvent, text: str):
+        """18+视频搜索"""
+        if not self.api_url_18:
+            yield event.plain_result("\n🔞 成人内容服务未启用")
+            return
+        async for msg in self._common_handler(event, self.api_url_18, text):
             yield msg
