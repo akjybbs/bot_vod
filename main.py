@@ -32,7 +32,7 @@ class SetuPlugin(Star):
                     if response.status == 200:
                         result = self.process_html_response(response_text)
                         if result:
-                            yield event.plain_result(f"查询结果:\n{result}\n*****播放方法：1.手机端将复制的播放链接粘贴到浏览器地址栏中进行观看。2.电脑端将复制的播放链接粘贴到播放器中观看！*****")
+                            yield event.plain_result(f"查询结果:\n{result}\n*****播放方法：\n1.手机端将复制的播放链接粘贴到浏览器地址栏中进行观看。\n2.电脑端将复制的播放链接粘贴到播放器中观看！*****")
                         else:
                             yield event.plain_result("\n没有找到相关视频。")
                     elif response.status == 404:
