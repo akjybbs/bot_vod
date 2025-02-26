@@ -2,7 +2,14 @@
     "api_url": {
         "description": "电影API地址，仅支持xml",
         "type": "string",
-        "hint": "填写获取电影API地址",
+        "hint": "填写获取第一个电影API地址",
+        "default": "",
+        "obvious_hint": true
+    },
+    "api_url_18": {
+        "description": "电影API地址，仅支持xml",
+        "type": "string",
+        "hint": "填写获取第二个电影API地址",
         "default": "",
         "obvious_hint": true
     }
