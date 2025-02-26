@@ -45,9 +45,7 @@ class SetuPlugin(Star):
                         if 'json' in content_type:
                             result = self.process_json_response(response_text)
                         elif 'xml' in content_type.split(';')[0]:
-                            result = self.process_xml_response(response_text)
-                        elif 'html' in content_type.split(';')[0]:
-                            result = self.process_html_response(response_text)
+                            result = self.process_rss_response(response_text)
                         else:
                             logger.error(f"不支持的响应格式: {content_type}, 响应体: {response_text}")
                             yield event.plain_result("\n不支持的响应格式，请检查API文档。")
@@ -71,35 +69,12 @@ class SetuPlugin(Star):
             yield event.plain_result("\n发生未知错误，请稍后再试。")
 
     def process_json_response(self, data):
-        try:
-            jsondata = json.loads(data, strict=False)
-            if jsondata and 'list' in jsondata:
-                medialist = jsondata['list']
-                if len(medialist) > 0:
-                    results = []
-                    for info in medialist:
-                        playfrom = info["vod_play_from"]
-                        playnote = '$$$'
-                        playfromlist = playfrom.split(playnote)
-                        playurl = info["vod_play_url"]
-                        playurllist = playurl.split(playnote)
-                        
-                        for i in range(len(playfromlist)):
-                            urllist = playurllist[i].split('#')
-                            for url in urllist:
-                                if url.strip() != '':
-                                    jsdz = url
-                                    js = '第' + str(urllist.index(url) + 1) + '集' if len(urllist) > 1 else '完整版'
-                                    results.append(f"来源: {playfromlist[i]}\n标题: {info['vod_name']} - {js}, 链接: {jsdz}\n")
-                    
-                    return "\n".join(results) if results else None
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON解析错误: {e}, 响应体: {data}")
-            return None
+        # 处理JSON响应的逻辑（如果需要）
+        pass
 
-    def process_xml_response(self, data):
+    def process_rss_response(self, xml_data):
         try:
-            soup = BeautifulSoup(data, 'xml')
+            soup = BeautifulSoup(xml_data, 'xml')
             video_items = soup.find_all('video')
             if not video_items:
                 logger.error("XML响应中未找到任何视频项")
@@ -123,43 +98,5 @@ class SetuPlugin(Star):
 
             return "\n".join(results) if results else None
         except Exception as e:
-            logger.error(f"XML解析错误: {e}, 响应体: {data}")
-            return None
-
-    def process_html_response(self, html_content):
-        try:
-            soup = BeautifulSoup(html_content, 'html.parser')
-            selector = soup.select('rss > list > video')
-            if len(selector) > 0:
-                info = selector[0]
-                nameinfo = info.select('name')[0]
-                name = nameinfo.text
-                picinfo = info.select('pic')[0]
-                pic = picinfo.text
-                actorinfo = info.select('actor')[0]
-                actor = '演员:' + actorinfo.text.strip()
-                desinfo = info.select('des')[0]
-                des = '简介:' + desinfo.text.strip()
-                dds = info.select('dl > dd')
-                results = []
-                for dd in dds:
-                    ddflag = dd.get('flag')
-                    ddinfo = dd.text
-                    m3u8list = []
-                    if ddflag.find('m3u8') >= 0:
-                        urllist = ddinfo.split('#')
-                        n = 1
-                        for source in urllist:
-                            urlinfo = source.split('$')
-                            if len(urlinfo) == 1:
-                                m3u8list.append({'title': f'第{n}集', 'url': ddinfo})
-                            else:
-                                m3u8list.append({'title': urlinfo[0], 'url': urlinfo[1]})
-                            n += 1
-                        results.append(f"来源: {ddflag}\n")
-                        for media in m3u8list:
-                            results.append(f"标题: {media['title']}, 链接: {media['url']}\n")
-                return "\n".join(results) if results else None
-        except Exception as e:
-            logger.error(f"HTML解析错误: {e}, 响应体: {html_content}")
+            logger.error(f"RSS解析错误: {e}, 响应体: {xml_data}")
             return None
