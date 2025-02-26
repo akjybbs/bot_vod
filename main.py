@@ -78,14 +78,25 @@ class SetuPlugin(Star):
     def process_xml_response(self, data):
         try:
             root = ET.fromstring(data)
-            video_list = root.findall(".//video")
-            if not video_list:
+            video_items = root.findall(".//video")
+            if not video_items:
                 return None
 
-            return "\n".join([
-                f"标题: {video.find('name').text}, 链接: {video.find('play_url').text}"
-                for video in video_list
-            ])
+            results = []
+            for video in video_items:
+                title = video.find('name').text if video.find('name') is not None else '未知标题'
+                # 查找包含视频链接的<dd>标签
+                dd_elements = video.findall('.//dd')
+                video_url = None
+                for dd in dd_elements:
+                    if dd.attrib.get('flag') == 'ckplayer':
+                        # 提取CDATA部分的内容
+                        video_url = dd.text.strip()
+                        break
+                if video_url:
+                    results.append(f"标题: {title}, 链接: {video_url}")
+            
+            return "\n".join(results) if results else None
         except ET.ParseError as e:
             logger.error(f"XML parse error: {e}")
             return None
