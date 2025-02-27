@@ -104,7 +104,7 @@ class VideoSearchPlugin(Star):
 
     @filter.command("vodd")
     async def search_adult(self, event: AstrMessageEvent, text: str):
-        """18+视频搜索"""
+        """🔞搜索"""
         if not any(self.api_url_18):  # 检查是否有配置有效的API地址
             yield event.plain_result("🔞 服务未启用")
             return
