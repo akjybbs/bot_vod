@@ -17,7 +17,7 @@ class VideoSearchPlugin(Star):
         """通用请求处理核心逻辑"""
         # 空API地址检查
         if not api_url:
-            yield event.plain_result("?? 服务未正确配置，请联系管理员")
+            yield event.plain_result("⚠️ 服务未正确配置，请联系管理员")
             return
 
         # URL编码处理
@@ -30,7 +30,7 @@ class VideoSearchPlugin(Star):
                 async with session.get(query_url, timeout=15) as response:
                     # HTTP状态码处理
                     if response.status != 200:
-                        yield event.plain_result(f"?? 服务暂时不可用（状态码 {response.status}）")
+                        yield event.plain_result(f"⚠️ 服务暂时不可用（状态码 {response.status}）")
                         return
 
                     # 响应内容处理
@@ -38,15 +38,15 @@ class VideoSearchPlugin(Star):
                     parsed_result = self._parse_html(html_content)
 
                     if not parsed_result:
-                        yield event.plain_result("?? 未找到相关视频资源")
+                        yield event.plain_result("🔍 未找到相关视频资源")
                         return
 
                     # 构建最终消息
                     result_msg = [
-                        "?? 查询结果：",
+                        "📺 查询结果：",
                         parsed_result,
                         "\n" + "*" * 25,
-                        "?? 重要观看提示：",
+                        "💡 重要观看提示：",
                         "1. 手机端：复制链接到浏览器地址栏打开",
                         "2. 电脑端：使用专业播放器打开链接",
                         "*" * 25
@@ -54,10 +54,10 @@ class VideoSearchPlugin(Star):
                     yield event.plain_result("\n".join(result_msg))
 
         except aiohttp.ClientTimeout:
-            yield event.plain_result("? 请求超时，请稍后重试")
+            yield event.plain_result("⏳ 请求超时，请稍后重试")
         except Exception as e:
             self.context.logger.error(f"视频查询异常: {str(e)}")
-            yield event.plain_result("? 服务暂时异常，请稍后再试")
+            yield event.plain_result("❌ 服务暂时异常，请稍后再试")
 
     def _parse_html(self, html_content):
         """HTML解析专用方法"""
@@ -74,7 +74,7 @@ class VideoSearchPlugin(Star):
             for dd in dd_elements:
                 for url in dd.text.split('#'):
                     if url.strip():
-                        results.append(f"{idx}. 【{title}】 ?? {url.strip()}")
+                        results.append(f"{idx}. 【{title}】\n   🎬 {url.strip()}")
 
         return "\n".join(results) if results else None
 
@@ -82,7 +82,7 @@ class VideoSearchPlugin(Star):
     async def search_normal(self, event: AstrMessageEvent, text: str):
         """普通影视资源搜索"""
         if not self.api_url_vod:
-            yield event.plain_result("?? 普通视频服务未配置")
+            yield event.plain_result("🔧 普通视频服务未配置")
             return
         async for msg in self._common_handler(event, self.api_url_vod, text):
             yield msg
@@ -91,7 +91,7 @@ class VideoSearchPlugin(Star):
     async def search_adult(self, event: AstrMessageEvent, text: str):
         """18+视频搜索"""
         if not self.api_url_18:
-            yield event.plain_result("?? 服务未启用")
+            yield event.plain_result("🔞 服务未启用")
             return
         async for msg in self._common_handler(event, self.api_url_18, text):
-            yield msg
+            yield msg这段代码中在插件配置中为什么出现了api_url，只给出需要修改代码的地方
