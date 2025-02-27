@@ -74,7 +74,7 @@ class VideoSearchPlugin(Star):
             for dd in dd_elements:
                 for url in dd.text.split('#'):
                     if url.strip():
-                        results.append(f"{idx}. 【{title}】\n   🎬 {url.strip()}")
+                        results.append(f"{idx}. 【{title}】 🎬 {url.strip()}")
 
         return "\n".join(results) if results else None
 
