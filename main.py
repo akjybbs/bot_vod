@@ -19,6 +19,7 @@ class VideoSearchPlugin(Star):
         total_attempts = len(api_urls)  # 总共尝试的API数量
         successful_apis = 0  # 成功获取数据的API数量
         all_results = []  # 存储所有结果
+        total_videos = 0  # 统计找到的视频条目总数
 
         for api_url in api_urls:
             api_url = api_url.strip()
@@ -39,10 +40,11 @@ class VideoSearchPlugin(Star):
 
                         # 响应内容处理
                         html_content = await response.text()
-                        parsed_result = self._parse_html(html_content)
+                        parsed_result, video_count = self._parse_html(html_content)
 
                         if parsed_result:
                             successful_apis += 1  # 记录成功的API数量
+                            total_videos += video_count  # 累加找到的视频条目数
                             all_results.append(parsed_result)  # 添加解析结果
 
             except aiohttp.ClientTimeout:
@@ -56,7 +58,7 @@ class VideoSearchPlugin(Star):
 
         if combined_results:
             result_msg = [
-                f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n📊 找到 {len(all_results)} 条结果\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n📊 成功找到 {total_videos} 条结果\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
                 "📺 查询结果：",
                 combined_results,
                 "\n" + "*" * 25,
@@ -75,6 +77,8 @@ class VideoSearchPlugin(Star):
         video_items = soup.select('rss list video')
 
         results = []
+        video_count = 0  # 记录本次解析找到的视频条目数
+
         for idx, item in enumerate(video_items[:8], 1):
             # 提取标题
             title = item.select_one('name').text.strip() if item.select_one('name') else "未知标题"
@@ -85,8 +89,9 @@ class VideoSearchPlugin(Star):
                 for url in dd.text.split('#'):
                     if url.strip():
                         results.append(f"{idx}. 【{title}】\n   🎬 {url.strip()}")
+                        video_count += 1  # 每找到一条有效链接，计数加一
 
-        return "\n".join(results) if results else None
+        return "\n".join(results) if results else None, video_count  # 返回解析结果和视频条目数
 
     @filter.command("vod")
     async def search_normal(self, event: AstrMessageEvent, text: str):
