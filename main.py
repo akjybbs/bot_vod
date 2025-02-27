@@ -1,10 +1,3 @@
-from astrbot.api.message_components import *
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
-from astrbot.api.star import Context, Star, register
-import aiohttp
-import urllib.parse
-from bs4 import BeautifulSoup
-
 @register("bot_vod", "appale", "从API获取视频地址（使用 /vod 或 /vodd + 电影名）", "1.1")
 class VideoSearchPlugin(Star):
     def __init__(self, context: Context, config: dict):
@@ -16,10 +9,9 @@ class VideoSearchPlugin(Star):
 
     async def _common_handler(self, event, api_urls, keyword):
         """通用请求处理核心逻辑"""
-        total_sources = len(api_urls)
-        successful_sources = 0
-        all_found_results = []
-        seen_titles = set()
+        total_attempts = len(api_urls)  # 总共尝试的API数量
+        successful_apis = 0  # 成功获取数据的API数量
+        all_results = []  # 存储所有结果
 
         for api_url in api_urls:
             api_url = api_url.strip()
@@ -35,19 +27,16 @@ class VideoSearchPlugin(Star):
                 async with aiohttp.ClientSession() as session:
                     async with session.get(query_url, timeout=15) as response:
                         # HTTP状态码处理
-                        if response.status == 200:
-                            successful_sources += 1
-                            # 响应内容处理
-                            html_content = await response.text()
-                            parsed_result = self._parse_html(html_content)
-                            if parsed_result:
-                                for title, episodes in parsed_result.items():
-                                    if title not in seen_titles and len(all_found_results) < 8:
-                                        seen_titles.add(title)
-                                        episode = episodes[0] if episodes else "未知链接"
-                                        all_found_results.append(f"【{title}】\n   🎬 {episode}")
-                                        if len(all_found_results) >= 8:
-                                            break
+                        if response.status != 200:
+                            continue  # 如果当前API请求失败，继续尝试下一个API
+
+                        # 响应内容处理
+                        html_content = await response.text()
+                        parsed_result = self._parse_html(html_content)
+
+                        if parsed_result:
+                            successful_apis += 1  # 记录成功的API数量
+                            all_results.append(parsed_result)  # 添加解析结果
 
             except aiohttp.ClientTimeout:
                 continue  # 请求超时，继续尝试下一个API
@@ -55,14 +44,14 @@ class VideoSearchPlugin(Star):
                 self.context.logger.error(f"视频查询异常: {str(e)}")
                 continue  # 发生异常，继续尝试下一个API
 
-        # 构建统计信息
-        stats_msg = f"🔍 搜索 {total_sources} 个源｜成功 {successful_sources} 个\n📊 找到 {len(seen_titles)} 条结果｜展示前 8 条"
+        # 合并所有结果
+        combined_results = "\n".join(all_results) if all_results else None
 
-        if all_found_results:
+        if combined_results:
             result_msg = [
-                stats_msg,
+                f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个📊 找到 {len(all_results)} 条结果",
                 "📺 查询结果：",
-                "\n".join([f"{idx + 1}. {result}" for idx, result in enumerate(all_found_results)]),
+                combined_results,
                 "\n" + "*" * 25,
                 "💡 重要观看提示：",
                 "1. 手机端：复制链接到浏览器地址栏打开",
@@ -71,31 +60,26 @@ class VideoSearchPlugin(Star):
             ]
             yield event.plain_result("\n".join(result_msg))
         else:
-            yield event.plain_result(f"{stats_msg}\n🔍 没有找到相关视频资源")
+            yield event.plain_result("🔍 没有找到相关视频资源")
 
     def _parse_html(self, html_content):
         """HTML解析专用方法"""
         soup = BeautifulSoup(html_content, 'html.parser')
         video_items = soup.select('rss list video')
 
-        results = {}
-        for item in video_items:
+        results = []
+        for idx, item in enumerate(video_items[:8], 1):
             # 提取标题
             title = item.select_one('name').text.strip() if item.select_one('name') else "未知标题"
             
             # 提取播放链接
             dd_elements = item.select('dl > dd')
-            episodes = []
             for dd in dd_elements:
                 for url in dd.text.split('#'):
                     if url.strip():
-                        episodes.append(url.strip())
+                        results.append(f"{idx}. 【{title}】\n   🎬 {url.strip()}")
 
-            if title not in results:
-                results[title] = []
-            results[title].extend(episodes)
-
-        return results
+        return "\n".join(results) if results else None
 
     @filter.command("vod")
     async def search_normal(self, event: AstrMessageEvent, text: str):
