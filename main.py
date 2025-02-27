@@ -18,7 +18,8 @@ class VideoSearchPlugin(Star):
         """通用请求处理核心逻辑"""
         total_sources = len(api_urls)
         successful_sources = 0
-        all_found_results = {}
+        all_found_results = []
+        seen_titles = set()
 
         for api_url in api_urls:
             api_url = api_url.strip()
@@ -41,9 +42,12 @@ class VideoSearchPlugin(Star):
                             parsed_result = self._parse_html(html_content)
                             if parsed_result:
                                 for title, episodes in parsed_result.items():
-                                    if title not in all_found_results:
-                                        all_found_results[title] = []
-                                    all_found_results[title].extend(episodes)
+                                    if title not in seen_titles and len(all_found_results) < 8:
+                                        seen_titles.add(title)
+                                        episode = episodes[0] if episodes else "未知链接"
+                                        all_found_results.append(f"【{title}】\n   🎬 {episode}")
+                                        if len(all_found_results) >= 8:
+                                            break
 
             except aiohttp.ClientTimeout:
                 continue  # 请求超时，继续尝试下一个API
@@ -51,28 +55,14 @@ class VideoSearchPlugin(Star):
                 self.context.logger.error(f"视频查询异常: {str(e)}")
                 continue  # 发生异常，继续尝试下一个API
 
-        # 合并所有找到的结果并限制最多8条
-        displayed_results = []
-        result_count = 0
-        for title, episodes in all_found_results.items():
-            episode_count = 0
-            for idx, episode in enumerate(episodes, 1):
-                displayed_results.append(f"{result_count + 1}. 【{title}】\n   🎬 第{idx}集\n   {episode}")
-                episode_count += 1
-                result_count += 1
-                if result_count >= 8:
-                    break
-            if result_count >= 8:
-                break
-        
         # 构建统计信息
-        stats_msg = f"🔍 搜索 {total_sources} 个源｜成功 {successful_sources} 个\n📊 找到 {len(all_found_results)} 条结果｜展示前 8 条"
+        stats_msg = f"🔍 搜索 {total_sources} 个源｜成功 {successful_sources} 个\n📊 找到 {len(seen_titles)} 条结果｜展示前 8 条"
 
-        if displayed_results:
+        if all_found_results:
             result_msg = [
                 stats_msg,
                 "📺 查询结果：",
-                "\n".join(displayed_results),
+                "\n".join([f"{idx + 1}. {result}" for idx, result in enumerate(all_found_results)]),
                 "\n" + "*" * 25,
                 "💡 重要观看提示：",
                 "1. 手机端：复制链接到浏览器地址栏打开",
