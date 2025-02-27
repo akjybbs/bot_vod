@@ -64,7 +64,8 @@ class VideoSearchPlugin(Star):
                 "\n" + "━" * 25,
                 "💡 重要观看提示：",
                 "1. 移动端：直接粘贴链接到浏览器",
-                "2. 桌面端：推荐使用PotPlayer/VLC"
+                "2. 桌面端：推荐使用PotPlayer/VLC",
+                "━" * 25
             ]
             yield event.plain_result("\n".join(result_msg))
         else:
