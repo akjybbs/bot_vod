@@ -7,7 +7,7 @@
         "obvious_hint": true
     },
     "api_url_18": {
-        "description": "18+ API地址（多个用逗号分隔）1个API输出3条结果，2个API输出6条结果。",
+        "description": "🔞 API地址（多个用逗号分隔）1个API输出3条结果，2个API输出6条结果。",
         "type": "string", 
         "hint": "示例：https://api1.com/api.php/provide/vod/at/xml,https://api2.com/api.php/provide/vod/at/xml",
         "default": "",
