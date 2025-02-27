@@ -74,9 +74,7 @@ class VideoSearchPlugin(Star):
             dd_elements = item.select('dl > dd')
             for dd in dd_elements:
                 for url in dd.text.split('#'):
-                    clean_url = url.strip()
-                    if clean_url:
-                        # 创建视频对象
+                    if url.strip():
                         video = Video.fromURL(url=url.strip())
                         # 假设您想要保存视频对象的一些信息
                         results.append(f"{idx}. 【{title}】🎬 {str(video)}")
