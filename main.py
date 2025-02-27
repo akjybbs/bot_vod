@@ -18,7 +18,7 @@ class VideoSearchPlugin(Star):
         """通用请求处理核心逻辑"""
         total_sources = len(api_urls)
         successful_sources = 0
-        all_found_results = []
+        all_found_results = {}
 
         for api_url in api_urls:
             api_url = api_url.strip()
@@ -40,7 +40,10 @@ class VideoSearchPlugin(Star):
                             html_content = await response.text()
                             parsed_result = self._parse_html(html_content)
                             if parsed_result:
-                                all_found_results.extend(parsed_result.split('\n'))
+                                for title, episodes in parsed_result.items():
+                                    if title not in all_found_results:
+                                        all_found_results[title] = []
+                                    all_found_results[title].extend(episodes)
 
             except aiohttp.ClientTimeout:
                 continue  # 请求超时，继续尝试下一个API
@@ -49,10 +52,21 @@ class VideoSearchPlugin(Star):
                 continue  # 发生异常，继续尝试下一个API
 
         # 合并所有找到的结果并限制最多8条
-        displayed_results = all_found_results[:8]
+        displayed_results = []
+        result_count = 0
+        for title, episodes in all_found_results.items():
+            episode_count = 0
+            for idx, episode in enumerate(episodes, 1):
+                displayed_results.append(f"{result_count + 1}. 【{title}】\n   🎬 第{idx}集\n   {episode}")
+                episode_count += 1
+                result_count += 1
+                if result_count >= 8:
+                    break
+            if result_count >= 8:
+                break
         
         # 构建统计信息
-        stats_msg = f"🔍 搜索 {total_sources} 个源｜成功 {successful_sources} 个\n📊 找到 {len(all_found_results) // 2} 条结果｜展示前 8 条"
+        stats_msg = f"🔍 搜索 {total_sources} 个源｜成功 {successful_sources} 个\n📊 找到 {len(all_found_results)} 条结果｜展示前 8 条"
 
         if displayed_results:
             result_msg = [
@@ -74,19 +88,24 @@ class VideoSearchPlugin(Star):
         soup = BeautifulSoup(html_content, 'html.parser')
         video_items = soup.select('rss list video')
 
-        results = []
-        for idx, item in enumerate(video_items, 1):  # 提取所有结果
+        results = {}
+        for item in video_items:
             # 提取标题
             title = item.select_one('name').text.strip() if item.select_one('name') else "未知标题"
             
             # 提取播放链接
             dd_elements = item.select('dl > dd')
+            episodes = []
             for dd in dd_elements:
                 for url in dd.text.split('#'):
                     if url.strip():
-                        results.append(f"{idx}. 【{title}】\n   🎬 {url.strip()}")
+                        episodes.append(url.strip())
 
-        return "\n".join(results) if results else None
+            if title not in results:
+                results[title] = []
+            results[title].extend(episodes)
+
+        return results
 
     @filter.command("vod")
     async def search_normal(self, event: AstrMessageEvent, text: str):
