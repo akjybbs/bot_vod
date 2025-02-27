@@ -56,7 +56,7 @@ class VideoSearchPlugin(Star):
 
         if combined_results:
             result_msg = [
-                f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个📊 找到 {len(all_results)} 条结果",
+                f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n📊 找到 {len(all_results)} 条结果\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
                 "📺 查询结果：",
                 combined_results,
                 "\n" + "*" * 25,
