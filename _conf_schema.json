@@ -1,14 +1,14 @@
 {
     "api_url_vod": {
         "description": "电影API地址，仅支持xml",
-        "type": "list",
+        "type": "string",
         "hint": "填写普通电影API地址",
         "default": "",
         "obvious_hint": true
     },
     "api_url_18": {
         "description": "电影API地址，仅支持xml",
-        "type": "list",
+        "type": "string",
         "hint": "填写18+电影API地址",
         "default": "",
         "obvious_hint": true
