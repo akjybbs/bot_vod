@@ -58,7 +58,7 @@ class VideoSearchPlugin(Star):
 
         if combined_results:
             result_msg = [
-                f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n📊 为你找到 {total_videos} 条视频\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n📊 为你找到 {total_videos} 条视频\n + "━" * 25",
                 "📺 查询结果：",
                 combined_results,
                 "\n" + "*" * 25,
@@ -69,7 +69,7 @@ class VideoSearchPlugin(Star):
             ]
             yield event.plain_result("\n".join(result_msg))
         else:
-            yield event.plain_result(f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━🔍 没有找到相关视频资源,请换个关键词重新搜索。")
+            yield event.plain_result(f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n + "━" * 25🔍 没有找到相关视频资源,请换个关键词重新搜索。")
 
     def _parse_html(self, html_content):
         """HTML解析专用方法"""
