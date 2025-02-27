@@ -12,13 +12,12 @@ class VideoSearchPlugin(Star):
         self.config = config
         self.api_url_vod = config.get("api_url_vod", "")
         self.api_url_18 = config.get("api_url_18", "")
+        # 检查配置是否完整
+        if not self.api_url_vod or not self.api_url_18:
+            raise ValueError("请确保在配置中正确设置了 api_url_vod 和 api_url_18")
 
     async def _common_handler(self, event, api_url, keyword):
         """通用请求处理核心逻辑"""
-        # 空API地址检查
-        if not api_url:
-            yield event.plain_result("⚠️ 服务未正确配置，请联系管理员")
-            return
 
         # URL编码处理
         encoded_keyword = urllib.parse.quote(keyword)
