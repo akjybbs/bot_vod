@@ -18,7 +18,7 @@ class VideoSearchPlugin(Star):
         """通用请求处理核心逻辑"""
         total_sources = len(api_urls)
         successful_sources = 0
-        found_results = []
+        all_found_results = []
 
         for api_url in api_urls:
             api_url = api_url.strip()
@@ -40,9 +40,7 @@ class VideoSearchPlugin(Star):
                             html_content = await response.text()
                             parsed_result = self._parse_html(html_content)
                             if parsed_result:
-                                found_results.append(parsed_result)
-                                if len(found_results) >= 8:  # 如果已找到8条结果，停止尝试其他API
-                                    break
+                                all_found_results.extend(parsed_result.split('\n'))
 
             except aiohttp.ClientTimeout:
                 continue  # 请求超时，继续尝试下一个API
@@ -51,16 +49,16 @@ class VideoSearchPlugin(Star):
                 continue  # 发生异常，继续尝试下一个API
 
         # 合并所有找到的结果并限制最多8条
-        all_results = "\n".join([result for sublist in found_results for result in sublist.split('\n')][:8])
+        displayed_results = all_found_results[:8]
         
         # 构建统计信息
-        stats_msg = f"🔍 搜索 {total_sources} 个源｜成功 {successful_sources} 个\n📊 找到 {len(all_results.splitlines()) // 2} 条结果｜展示前 8 条"
+        stats_msg = f"🔍 搜索 {total_sources} 个源｜成功 {successful_sources} 个\n📊 找到 {len(all_found_results) // 2} 条结果｜展示前 8 条"
 
-        if all_results:
+        if displayed_results:
             result_msg = [
                 stats_msg,
                 "📺 查询结果：",
-                all_results,
+                "\n".join(displayed_results),
                 "\n" + "*" * 25,
                 "💡 重要观看提示：",
                 "1. 手机端：复制链接到浏览器地址栏打开",
@@ -77,7 +75,7 @@ class VideoSearchPlugin(Star):
         video_items = soup.select('rss list video')
 
         results = []
-        for idx, item in enumerate(video_items[:8], 1):  # 最多提取8条结果
+        for idx, item in enumerate(video_items, 1):  # 提取所有结果
             # 提取标题
             title = item.select_one('name').text.strip() if item.select_one('name') else "未知标题"
             
