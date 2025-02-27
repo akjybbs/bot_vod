@@ -1,6 +1,7 @@
 from astrbot.api.message_components import *
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
+from astrbot.api.message_components import Video
 import aiohttp
 import urllib.parse
 from bs4 import BeautifulSoup
@@ -73,8 +74,12 @@ class VideoSearchPlugin(Star):
             dd_elements = item.select('dl > dd')
             for dd in dd_elements:
                 for url in dd.text.split('#'):
-                    if url.strip():
-                        results.append(f"{idx}. 【{title}】🎬 {url.strip()}")
+                    clean_url = url.strip()
+                    if clean_url:
+                        # 创建视频对象
+                        video_obj = Video.fromURL(url=clean_url)
+                        # 假设您想要保存视频对象的一些信息
+                        results.append(f"{idx}. 【{title}】🎬 {clean_url}")
 
         return "\n".join(results) if results else None
 
