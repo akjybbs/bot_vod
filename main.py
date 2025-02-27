@@ -77,9 +77,9 @@ class VideoSearchPlugin(Star):
                     clean_url = url.strip()
                     if clean_url:
                         # 创建视频对象
-                        video_obj = Video.fromURL(url=clean_url)
+                        video = Video.fromURL(url=url.strip())
                         # 假设您想要保存视频对象的一些信息
-                        results.append(f"{idx}. 【{title}】🎬 {clean_url}")
+                        results.append(f"{idx}. 【{title}】🎬 {str(video)}")
 
         return "\n".join(results) if results else None
 
