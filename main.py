@@ -79,7 +79,7 @@ class VideoSearchPlugin(Star):
         results = []
         video_count = 0  # 记录本次解析找到的视频条目数
 
-        for idx, item in enumerate(video_items[:8], 1):
+        for idx, item in enumerate(video_items[:3], 1):
             # 提取标题
             title = item.select_one('name').text.strip() if item.select_one('name') else "未知标题"
             
