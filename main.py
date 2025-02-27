@@ -61,11 +61,10 @@ class VideoSearchPlugin(Star):
                 f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n📊 为你找到 {total_videos} 条视频\n{'━' * 25}",
                 "📺 查询结果：",
                 combined_results,
-                "\n" + "*" * 25,
+                "\n" + "━" * 25,
                 "💡 重要观看提示：",
                 "1. 移动端：直接粘贴链接到浏览器",
-                "2. 桌面端：推荐使用PotPlayer/VLC",
-                "*" * 25
+                "2. 桌面端：推荐使用PotPlayer/VLC"
             ]
             yield event.plain_result("\n".join(result_msg))
         else:
