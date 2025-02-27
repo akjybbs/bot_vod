@@ -93,31 +93,46 @@ class VideoSearchPlugin(Star):
             ]
             self.context.logger.error(f"全API失败 | 请求记录：{' | '.join(error_log)}")
             yield event.plain_result("\n".join([*error_header, *error_body]))
-
     def _parse_html(self, html_content):
-        """HTML解析与结果统计"""
+        """新版HTML解析方法，按标题分组剧集"""
         soup = BeautifulSoup(html_content, 'html.parser')
-        all_items = soup.select('rss list video')
-        
+        video_items = soup.select('rss list video')
+    
+        MAX_TITLES = 8  # 最大显示标题数
         processed = []
-        MAX_DISPLAY = 8
-        actual_display = min(len(all_items), MAX_DISPLAY)
+        title_counter = 0
+    
+        for item in video_items:
+            if title_counter >= MAX_TITLES:
+                break
+            
+            # 提取主标题
+            main_title = item.select_one('name').text.strip() if item.select_one('name') else "未知标题"
         
-        for idx, item in enumerate(all_items[:MAX_DISPLAY], 1):
-            title = item.select_one('name').text.strip() if item.select_one('name') else "无标题"
-            
-            # 提取有效链接
-            valid_links = []
+            # 提取剧集信息
+            episodes = []
             for dd in item.select('dl > dd'):
-                for url in dd.text.split('#'):
-                    if url.strip():
-                        valid_links.append(url.strip())
-            
-            if valid_links:
-                links = "\n   ".join(valid_links)
-                processed.append(f"{idx}. 【{title}】\n   🎬 {links}")
-
-        return "\n".join(processed) if processed else None, len(all_items)
+                parts = dd.text.strip().split('$')
+                if len(parts) >= 2:
+                    ep_name = parts[0].strip()
+                    ep_url = parts[1].strip()
+                    episodes.append(f"   🎬 {ep_name}${ep_url}")
+                elif dd.text.strip():  # 处理没有分隔符的情况
+                    ep_url = dd.text.strip()
+                    ep_name = f"第{len(episodes)+1:02d}集"
+                    episodes.append(f"   🎬 {ep_name}${ep_url}")
+        
+            if episodes:
+                title_counter += 1
+                # 组装条目
+                entry = [
+                    f"{title_counter}. 【{main_title}】",
+                    *episodes[:5]  # 每个标题最多显示5个剧集
+                ]
+                processed.append("\n".join(entry))
+    
+        total_items = len(video_items)
+        return "\n\n".join(processed) if processed else None, total_items
 
     @filter.command("vod")
     async def search_normal(self, event: AstrMessageEvent, text: str):
