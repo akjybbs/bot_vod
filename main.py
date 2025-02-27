@@ -94,4 +94,4 @@ class VideoSearchPlugin(Star):
             yield event.plain_result("🔞 服务未启用")
             return
         async for msg in self._common_handler(event, self.api_url_18, text):
-            yield msg这段代码中在插件配置中为什么出现了api_url，只给出需要修改代码的地方
+            yield msg
