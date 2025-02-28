@@ -13,7 +13,7 @@ class VideoSearchPlugin(Star):
         # 将 api_url_vod 和 api_url_18 设置为列表
         self.api_url_vod = config.get("api_url_vod", "").split(',')
         self.api_url_18 = config.get("api_url_18", "").split(',')
-        self.records = config.get("records", "3")
+        self.records = int(config.get("records", "3"))
 
     async def _common_handler(self, event, api_urls, keyword):
         """通用请求处理核心逻辑"""
