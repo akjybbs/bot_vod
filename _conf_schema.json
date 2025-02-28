@@ -14,10 +14,10 @@
         "obvious_hint": true
     },
     "records": {
-        "description": "输出几条记录。如果输入3，则1个API输出3条结果，2个API输出6条结果。",
+        "description": "默认每条API输出3条记录",
         "type": "int",
-        "hint": "默认每条API输出3条记录",
-        "default": "",
+        "hint": "如果输入3，则1个API输出3条结果，2个API输出6条结果",
+        "default": "3",
         "obvious_hint": true
     }
 }
