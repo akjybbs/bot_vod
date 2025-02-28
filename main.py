@@ -13,6 +13,7 @@ class VideoSearchPlugin(Star):
         # 将 api_url_vod 和 api_url_18 设置为列表
         self.api_url_vod = config.get("api_url_vod", "").split(',')
         self.api_url_18 = config.get("api_url_18", "").split(',')
+        self.records = config.get("records", "3")
 
     async def _common_handler(self, event, api_urls, keyword):
         """通用请求处理核心逻辑"""
@@ -79,7 +80,7 @@ class VideoSearchPlugin(Star):
         results = []
         video_count = 0  # 记录本次解析找到的视频条目数
 
-        for idx, item in enumerate(video_items[:3], 1):
+        for idx, item in enumerate(video_items[:self.records], 1): #获取输出几条数据
             # 提取标题
             title = item.select_one('name').text.strip() if item.select_one('name') else "未知标题"
             
