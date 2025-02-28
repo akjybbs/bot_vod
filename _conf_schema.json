@@ -15,6 +15,9 @@
     },
     "records": {
         "description": "输出几条记录。如果输入3，则1个API输出3条结果，2个API输出6条结果。",
-        "type": "int"
+        "type": "int",
+        "hint": "默认每条API输出3条记录",
+        "default": "",
+        "obvious_hint": true
     }
 }
