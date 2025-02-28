@@ -1,16 +1,20 @@
 {
     "api_url_vod": {
-        "description": "普通影视API地址（多个用逗号分隔），1个API输出3条结果，2个API输出6条结果。",
+        "description": "普通影视API地址（多个用逗号分隔）",
         "type": "string",
         "hint": "示例：https://api1.com/api.php/provide/vod/at/xml,https://api2.com/api.php/provide/vod/at/xml",
         "default": "",
         "obvious_hint": true
     },
     "api_url_18": {
-        "description": "🔞 API地址（多个用逗号分隔）1个API输出3条结果，2个API输出6条结果。",
+        "description": "🔞 API地址（多个用逗号分隔）",
         "type": "string", 
         "hint": "示例：https://api1.com/api.php/provide/vod/at/xml,https://api2.com/api.php/provide/vod/at/xml",
         "default": "",
         "obvious_hint": true
+    },
+    "records": {
+        "description": "输出几条记录。如果输入3，则1个API输出3条结果，2个API输出6条结果。",
+        "type": "int"
     }
 }
