@@ -1,13 +1,15 @@
 from typing import Dict
 from astrbot.api.all import *
-from astrbot.api.message_components import *
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
-from astrbot.api.star import Context, Star, register
+import asyncio
 import aiohttp
 import urllib.parse
 from bs4 import BeautifulSoup
 import time
 from typing import Dict
+import subprocess
+import os
+import json
+import requests
 
 # 用户状态跟踪，记录分页信息和时间戳
 USER_STATES: Dict[str, Dict] = {}
