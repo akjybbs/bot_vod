@@ -7,9 +7,17 @@ import urllib.parse
 from bs4 import BeautifulSoup
 import time
 from typing import Dict, List
+from typing import Dict
+from astrbot.api.all import *
+import asyncio
+import time
+import subprocess
+import os
+import json
+import requests
 
 # 用户状态跟踪（支持多用户并发）
-VOD_STATES: Dict[int, Dict] = {}
+VOD_STATES: Dict[int, Dict[str, float]] = {}
 
 @register("bot_vod", "appale", "影视搜索（命令：/vod 或 /vodd + 关键词）", "3.0")
 class VideoSearchPlugin(Star):
