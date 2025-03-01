@@ -4,9 +4,8 @@ from astrbot.api.star import Context, Star, register
 import aiohttp
 import urllib.parse
 from bs4 import BeautifulSoup
-from collections import defaultdict
 
-@register("bot_vod", "appale", "从API获取视频地址（使用 /vod 或 /vodd + 电影名）", "1.1")
+@register("bot_vod", "appale", "影视资源搜索（分链接显示）", "1.2")
 class VideoSearchPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -16,11 +15,11 @@ class VideoSearchPlugin(Star):
         self.records = int(config.get("records", "3"))
 
     async def _common_handler(self, event, api_urls, keyword):
+        """核心处理逻辑（严格分链接显示）"""
         total_attempts = len(api_urls)
         successful_apis = 0
         all_entries = []
-        total_videos = 0
-
+        
         for api_url in api_urls:
             api_url = api_url.strip()
             if not api_url:
@@ -34,82 +33,75 @@ class VideoSearchPlugin(Star):
                     async with session.get(query_url, timeout=15) as response:
                         if response.status != 200:
                             continue
-
+                            
                         html_content = await response.text()
-                        parsed_entries, video_count = self._parse_html(html_content)
-
-                        if parsed_entries:
+                        entries = self._parse_api_results(html_content)
+                        
+                        if entries:
                             successful_apis += 1
-                            total_videos += video_count
-                            all_entries.extend(parsed_entries)
-
-            except aiohttp.ClientTimeout:
-                continue
+                            all_entries.extend(entries[:self.records])  # 严格限制每个API的输出数量
             except Exception as e:
-                self.context.logger.error(f"视频查询异常: {str(e)}")
-                continue
+                self.context.logger.error(f"请求异常: {str(e)}")
 
-        # 按标题分组并去重
-        grouped = defaultdict(list)
+        # 生成最终结果
+        output = []
+        current_group = []
         for entry in all_entries:
-            grouped[entry['title']].append(entry['url'])
+            line = f"{entry['group_id']}. 【{entry['title']}】\n   🎬 {entry['url']}"
+            output.append(line)
+        
+        result = [
+            f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个",
+            *output,
+            "━" * 25 + "\n💡 提示：相同序号表示同一影视的不同链接"
+        ]
+        yield event.plain_result("\n".join(result))
 
-        # 生成结果字符串
-        results = []
-        for idx, (title, urls) in enumerate(grouped.items(), 1):
-            results.append(f"{idx}. 【{title}】")
-            for url in urls:
-                results.append(f"   🎬 {url}")
-
-        combined_results = "\n".join(results) if results else None
-        total_videos = sum(len(urls) for urls in grouped.values())
-
-        if combined_results:
-            result_msg = [
-                f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n📊 为你找到 {total_videos} 条视频\n{'━' * 25}",
-                "📺 查询结果：",
-                combined_results,
-                "\n" + "━" * 25,
-                "💡 重要观看提示：",
-                "1. 移动端：直接粘贴链接到浏览器",
-                "2. 桌面端：推荐使用PotPlayer/VLC",
-                "━" * 25
-            ]
-            yield event.plain_result("\n".join(result_msg))
-        else:
-            yield event.plain_result(f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n{'━' * 25}🔍 没有找到相关视频资源,请换个关键词重新搜索。")
-
-    def _parse_html(self, html_content):
+    def _parse_api_results(self, html_content):
+        """严格解析API结果（每个链接单独显示）"""
         soup = BeautifulSoup(html_content, 'html.parser')
-        video_items = soup.select('rss list video')
-
+        videos = soup.select('rss list video')[:self.records]
+        
         entries = []
-        video_count = 0
-
-        for item in video_items[:self.records]:
-            title = item.select_one('name').text.strip() if item.select_one('name') else "未知标题"
-            dd_elements = item.select('dl > dd')
-            for dd in dd_elements:
-                for url in dd.text.split('#'):
-                    url = url.strip()
-                    if url:
-                        entries.append({'title': title, 'url': url})
-                        video_count += 1
-
-        return entries, video_count
+        title_groups = {}  # 记录标题分组
+        
+        for video in videos:
+            title = video.select_one('name').text.strip() if video.select_one('name') else "未知标题"
+            urls = []
+            
+            # 提取所有链接
+            for dd in video.select('dl > dd'):
+                urls.extend(url.strip() for url in dd.text.split('#') if url.strip())
+            
+            # 创建分组
+            if title not in title_groups:
+                title_groups[title] = len(title_groups) + 1
+            group_id = title_groups[title]
+            
+            # 每个链接生成独立条目
+            for url in urls:
+                entries.append({
+                    "group_id": group_id,
+                    "title": title,
+                    "url": url
+                })
+        
+        return entries
 
     @filter.command("vod")
     async def search_normal(self, event: AstrMessageEvent, text: str):
-        if not any(self.api_url_vod):
-            yield event.plain_result("🔧 普通视频服务未配置")
+        """普通影视搜索"""
+        if not self.api_url_vod:
+            yield event.plain_result("🎦 视频服务维护中")
             return
         async for msg in self._common_handler(event, self.api_url_vod, text):
             yield msg
 
     @filter.command("vodd")
     async def search_adult(self, event: AstrMessageEvent, text: str):
-        if not any(self.api_url_18):
-            yield event.plain_result("🔞 服务未启用")
+        """🔞成人内容搜索"""
+        if not self.api_url_18:
+            yield event.plain_result("🔞 功能未启用")
             return
         async for msg in self._common_handler(event, self.api_url_18, text):
             yield msg
