@@ -18,8 +18,8 @@ class VideoSearchPlugin(Star):
         """合并多API结果的核心逻辑"""
         total_attempts = len(api_urls)
         successful_apis = 0
-        grouped_results = {}  # 按标题聚合结果
-        ordered_titles = []   # 维护标题原始顺序
+        grouped_results = {}  # 按标准化标题聚合结果
+        ordered_titles = []   # 维护标准化标题的原始顺序
         
         for api_url in api_urls:
             api_url = api_url.strip()
@@ -41,11 +41,14 @@ class VideoSearchPlugin(Star):
                         if parsed_items:
                             successful_apis += 1
                             # 合并结果并保持顺序
-                            for title, url in parsed_items:
-                                if title not in grouped_results:
-                                    grouped_results[title] = []
-                                    ordered_titles.append(title)
-                                grouped_results[title].append(url)
+                            for normalized_title, original_title, url in parsed_items:
+                                if normalized_title not in grouped_results:
+                                    grouped_results[normalized_title] = {
+                                        'original_title': original_title,
+                                        'urls': []
+                                    }
+                                    ordered_titles.append(normalized_title)
+                                grouped_results[normalized_title]['urls'].append(url)
 
             except Exception as e:
                 self.context.logger.error(f"API请求异常: {str(e)}")
@@ -53,11 +56,13 @@ class VideoSearchPlugin(Star):
 
         # 构建最终输出
         result_lines = []
-        total_videos = sum(len(urls) for urls in grouped_results.values())
+        total_videos = sum(len(data['urls']) for data in grouped_results.values())
         
-        for idx, title in enumerate(ordered_titles, 1):
-            urls = grouped_results.get(title, [])
-            result_lines.append(f"{idx}. 【{title}】")
+        for idx, normalized_title in enumerate(ordered_titles, 1):
+            data = grouped_results[normalized_title]
+            original_title = data['original_title']
+            urls = data['urls']
+            result_lines.append(f"{idx}. 【{original_title}】")
             result_lines.extend([f"   🎬 {url}" for url in urls])
 
         if result_lines:
@@ -79,18 +84,19 @@ class VideoSearchPlugin(Star):
             yield event.plain_result(f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n{'━'*30}\n未找到相关资源")
 
     def _parse_html(self, html_content):
-        """解析HTML并返回结构化数据"""
+        """解析HTML并返回结构化数据（标准化标题）"""
         soup = BeautifulSoup(html_content, 'html.parser')
         video_items = soup.select('rss list video')[:self.records]
         
         parsed_data = []
         for item in video_items:
-            title = item.select_one('name').text.strip() if item.select_one('name') else "未知标题"
+            original_title = item.select_one('name').text.strip() if item.select_one('name') else "未知标题"
+            normalized_title = original_title.lower().strip()  # 标准化处理
             # 提取所有播放链接
             for dd in item.select('dl > dd'):
                 for url in dd.text.split('#'):
                     if url := url.strip():
-                        parsed_data.append((title, url))
+                        parsed_data.append((normalized_title, original_title, url))
         return parsed_data
 
     @filter.command("vod")
