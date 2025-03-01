@@ -1,4 +1,7 @@
 from astrbot.api.all import *
+from astrbot.api.message_components import *
+from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
+from astrbot.api.star import Context, Star, register
 import aiohttp
 import urllib.parse
 from bs4 import BeautifulSoup
