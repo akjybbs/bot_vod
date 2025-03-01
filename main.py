@@ -4,7 +4,7 @@ import urllib.parse
 import time
 from bs4 import BeautifulSoup
 
-@register("bot_vod", "appale", "影视资源搜索插件", "1.1")
+@register("bot_vod", "appale", "影视资源搜索插件", 2.0.1")
 class VideoSearchPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
