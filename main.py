@@ -10,89 +10,94 @@ class VideoSearchPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
+        # 将 api_url_vod 和 api_url_18 设置为列表
         self.api_url_vod = config.get("api_url_vod", "").split(',')
         self.api_url_18 = config.get("api_url_18", "").split(',')
         self.records = int(config.get("records", "3"))
 
     async def _common_handler(self, event, api_urls, keyword):
-        """核心逻辑：按影视名称去重"""
-        total_attempts = len(api_urls)
-        successful_apis = 0
-        seen_titles = set()  # 名称去重集合
-        final_results = []   # 最终结果（名称唯一）
-        raw_count = 0        # 原始找到总数
+        """通用请求处理核心逻辑"""
+        total_attempts = len(api_urls)  # 总共尝试的API数量
+        successful_apis = 0  # 成功获取数据的API数量
+        all_results = []  # 存储所有结果
+        total_videos = 0  # 统计找到的视频条目总数
 
         for api_url in api_urls:
             api_url = api_url.strip()
             if not api_url:
-                continue
+                continue  # 跳过空的API地址
 
+            # URL编码处理
             encoded_keyword = urllib.parse.quote(keyword)
             query_url = f"{api_url}?ac=videolist&wd={encoded_keyword}"
 
             try:
+                # 异步HTTP请求
                 async with aiohttp.ClientSession() as session:
                     async with session.get(query_url, timeout=15) as response:
+                        # HTTP状态码处理
                         if response.status != 200:
-                            continue
+                            continue  # 如果当前API请求失败，继续尝试下一个API
 
+                        # 响应内容处理
                         html_content = await response.text()
-                        items = self._parse_html(html_content)
-                        raw_count += len(items)  # 累加原始数据量
+                        parsed_result, video_count = self._parse_html(html_content)
 
-                        if items:
-                            successful_apis += 1
-                            # 名称去重处理
-                            for title, url in items:
-                                if title not in seen_titles:
-                                    seen_titles.add(title)
-                                    final_results.append((title, url))
+                        if parsed_result:
+                            successful_apis += 1  # 记录成功的API数量
+                            total_videos += video_count  # 累加找到的视频条目数
+                            all_results.append(parsed_result)  # 添加解析结果
 
+            except aiohttp.ClientTimeout:
+                continue  # 请求超时，继续尝试下一个API
             except Exception as e:
                 self.context.logger.error(f"视频查询异常: {str(e)}")
-                continue
+                continue  # 发生异常，继续尝试下一个API
 
-        # 处理显示结果
-        display_results = final_results[:self.records]  # 限制显示条数
-        unique_count = len(final_results)
+        # 合并所有结果
+        combined_results = "\n".join(all_results) if all_results else None
 
-        if display_results:
-            result_lines = [f"{idx}. 【{title}】\n   🎬 {url}" 
-                           for idx, (title, url) in enumerate(display_results, 1)]
-            
-            msg = [
-                f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个",
-                f"📊 原始结果 {raw_count} 条｜去重后 {unique_count} 条｜显示前{len(display_results)}条",
-                "━" * 30,
+        if combined_results:
+            result_msg = [
+                f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n📊 为你找到 {total_videos} 条视频\n{'━' * 25}",
                 "📺 查询结果：",
-                *result_lines,
-                "\n" + "━" * 30,
-                "💡 同名资源已自动去重，优先显示最早找到的版本",
-                "━" * 30
+                combined_results,
+                "\n" + "━" * 25,
+                "💡 重要观看提示：",
+                "1. 移动端：直接粘贴链接到浏览器",
+                "2. 桌面端：推荐使用PotPlayer/VLC",
+                "━" * 25
             ]
-            yield event.plain_result("\n".join(msg))
+            yield event.plain_result("\n".join(result_msg))
         else:
-            yield event.plain_result(f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n{'━' * 30}\n⚠️ 未找到相关资源")
+            yield event.plain_result(f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n{'━' * 25}🔍 没有找到相关视频资源,请换个关键词重新搜索。")
 
     def _parse_html(self, html_content):
-        """解析HTML（保持原始顺序）"""
+        """HTML解析专用方法"""
         soup = BeautifulSoup(html_content, 'html.parser')
         video_items = soup.select('rss list video')
-        
+
         results = []
-        for item in video_items[:self.records]:  # 控制单API处理量
+        video_count = 0  # 记录本次解析找到的视频条目数
+
+        for idx, item in enumerate(video_items[:self.records], 1): #获取输出几条数据
+            # 提取标题
             title = item.select_one('name').text.strip() if item.select_one('name') else "未知标题"
-            # 取第一个有效的播放链接
-            first_url = next((url.strip() for dd in item.select('dl > dd') 
-                            for url in dd.text.split('#') if url.strip()), None)
-            if first_url:
-                results.append((title, first_url))
-        return results
+            
+            # 提取播放链接
+            dd_elements = item.select('dl > dd')
+            for dd in dd_elements:
+                for url in dd.text.split('#'):
+                    if url.strip():
+                        results.append(f"{idx}. 【{title}】\n   🎬 {url.strip()}")
+                        video_count += 1  # 每找到一条有效链接，计数加一
+
+        return "\n".join(results) if results else None, video_count  # 返回解析结果和视频条目数
 
     @filter.command("vod")
     async def search_normal(self, event: AstrMessageEvent, text: str):
-        """普通影视搜索"""
-        if not any(self.api_url_vod):
+        """普通影视资源搜索"""
+        if not any(self.api_url_vod):  # 检查是否有配置有效的API地址
             yield event.plain_result("🔧 普通视频服务未配置")
             return
         async for msg in self._common_handler(event, self.api_url_vod, text):
@@ -100,8 +105,8 @@ class VideoSearchPlugin(Star):
 
     @filter.command("vodd")
     async def search_adult(self, event: AstrMessageEvent, text: str):
-        """🔞成人内容搜索"""
-        if not any(self.api_url_18):
+        """🔞搜索"""
+        if not any(self.api_url_18):  # 检查是否有配置有效的API地址
             yield event.plain_result("🔞 服务未启用")
             return
         async for msg in self._common_handler(event, self.api_url_18, text):
