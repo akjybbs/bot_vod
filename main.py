@@ -189,9 +189,9 @@ class VideoSearchPlugin(Star):
 
     @filter.command("vodd")
     async def search_adult(self, event: AstrMessageEvent, text: str):
-        """成人内容搜索"""
+        """🔞内容搜索"""
         if not self.api_url_18:
-            yield event.plain_result("🔞 成人内容服务未启用")
+            yield event.plain_result("🔞 服务未启用")
             return
         async for msg in self._common_handler(event, self.api_url_18, text):
             yield msg
