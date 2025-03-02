@@ -216,7 +216,7 @@ class VideoSearchPlugin(Star):
                 return
 
             # 动态更新有效期
-            new_expiry = time.time() + 300
+            new_expiry = time.time() + 600
             new_beijing_time = time.strftime("%H:%M", time.gmtime(new_expiry + 8 * 3600))
             
             # 正则替换时间
