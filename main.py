@@ -8,7 +8,7 @@ import time
 import asyncio
 import re
 
-@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "2.0.5")
+@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "2.0.3")
 class VideoSearchPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -17,7 +17,7 @@ class VideoSearchPlugin(Star):
         self.api_url_18 = config.get("api_url_18", "").split(',')
         self.records = int(config.get("records", "3"))
         self.user_pages = {}
-        self.lock = asyncio.Lock()
+        self.lock = asyncio.Lock()  # 添加线程安全锁
 
     def _get_user_identity(self, event: AstrMessageEvent) -> str:
         """增强用户标识获取"""
@@ -30,8 +30,8 @@ class VideoSearchPlugin(Star):
             return f"unknown-{int(time.time())}"
 
     async def _common_handler(self, event: AstrMessageEvent, api_urls: list, keyword: str):
-        """核心搜索逻辑（智能分页优化版）"""
-        async with self.lock:
+        """核心搜索逻辑（精确分页控制）"""
+        async with self.lock:  # 保证线程安全
             user_id = self._get_user_identity(event)
             total_attempts = len(api_urls)
             successful_apis = 0
@@ -84,7 +84,7 @@ class VideoSearchPlugin(Star):
                     "urls": entries
                 })
 
-            # 智能分页处理（动态合并优化）
+            # 智能分页处理（确保标题完整）
             pages = []
             if structured_results:
                 header = [
@@ -101,11 +101,11 @@ class VideoSearchPlugin(Star):
                     "━" * 28
                 ]
 
-                # 有效期计算
+                # 生成有效期提示
                 expiry_timestamp = time.time() + 300
                 beijing_time = time.strftime("%H:%M", time.gmtime(expiry_timestamp + 8 * 3600))
                 
-                # 基础长度计算
+                # 预计算基础长度
                 header_content = '\n'.join(header)
                 header_length = len(header_content) + 1  # 包含换行符
                 base_footer = [
@@ -115,72 +115,22 @@ class VideoSearchPlugin(Star):
                 footer_content = '\n'.join(base_footer)
                 base_footer_length = len(footer_content) + 30  # 预留页码空间
 
-                current_blocks = []
-                remaining_blocks = structured_results.copy()
-                min_page_size = 200  # 最小页面内容阈值
-
-                while remaining_blocks:
-                    # 初始化当前页
-                    current_page = []
-                    current_length = header_length
-                    page_filled = False
+                current_page = []
+                current_length = header_length  # 当前内容总长度（含header）
+                
+                for title_block in structured_results:
+                    # 生成标题块内容
+                    block_lines = [title_block["title"]]
+                    block_lines.extend([f"   🎬 {u['url']}" for u in title_block["urls"]])
+                    block_content = '\n'.join(block_lines)
+                    block_size = len(block_content) + 2  # 块内容长度（含首尾换行）
                     
-                    # 动态填充策略
-                    while remaining_blocks and not page_filled:
-                        next_block = remaining_blocks[0]
-                        
-                        # 生成块内容
-                        block_lines = [next_block["title"]]
-                        block_lines.extend([f"   🎬 {u['url']}" for u in next_block["urls"]])
-                        block_content = '\n'.join(block_lines)
-                        
-                        # 计算块尺寸
-                        block_size = len(block_content) + (1 if current_page else 0)  # 块间换行
-                        estimated_total = current_length + block_size + base_footer_length
-                        
-                        # 填充条件判断
-                        if (current_length + block_size + base_footer_length <= 1200) or \
-                           (not current_page and estimated_total <= 1500):
-                            # 添加块到当前页
-                            if current_page:
-                                current_page.append('')  # 块间空行
-                            current_page.extend(block_lines)
-                            current_length += block_size
-                            remaining_blocks.pop(0)
-                            
-                            # 检查后续小块是否可以合并
-                            lookahead_blocks = 3  # 预看后续3个块
-                            for _ in range(min(lookahead_blocks, len(remaining_blocks))):
-                                test_block = remaining_blocks[0]
-                                test_lines = [test_block["title"]] + [f"   🎬 {u['url']}" for u in test_block["urls"]]
-                                test_size = len('\n'.join(test_lines)) + 1  # 换行符
-                                
-                                if current_length + test_size + base_footer_length <= 1000:
-                                    current_page.append('')
-                                    current_page.extend(test_lines)
-                                    current_length += test_size
-                                    remaining_blocks.pop(0)
-                                else:
-                                    break
-                        else:
-                            page_filled = True
-
-                    # 生成页面内容
-                    if current_page:
-                        # 检查页面内容是否过小
-                        if len('\n'.join(current_page)) < min_page_size and remaining_blocks:
-                            # 尝试合并下一个块
-                            next_block = remaining_blocks[0]
-                            test_lines = [next_block["title"]] + [f"   🎬 {u['url']}" for u in next_block["urls"]]
-                            test_size = len('\n'.join(test_lines)) + 1
-                            
-                            if current_length + test_size + base_footer_length <= 1500:
-                                current_page.append('')
-                                current_page.extend(test_lines)
-                                current_length += test_size
-                                remaining_blocks.pop(0)
-
-                        # 构建页脚
+                    # 计算预估总长度（当前内容 + 块 + 页脚）
+                    estimated_total = current_length + block_size + base_footer_length
+                    
+                    # 分页判断（保证至少显示一个标题）
+                    if estimated_total > 1000 and len(current_page) > 0:
+                        # 添加页脚生成当前页
                         page_number = len(pages) + 1
                         footer = [
                             f"📑 第 {page_number}/PAGES 页",
@@ -188,6 +138,27 @@ class VideoSearchPlugin(Star):
                         ]
                         full_content = '\n'.join([header_content] + current_page + footer)
                         pages.append(full_content)
+                        
+                        # 重置状态
+                        current_page = block_lines
+                        current_length = header_length + block_size
+                    else:
+                        # 追加到当前页
+                        if current_page:
+                            current_page.append('')  # 添加块间空行
+                            current_length += 1
+                        current_page.extend(block_lines)
+                        current_length += block_size
+
+                # 处理最后一页
+                if current_page:
+                    page_number = len(pages) + 1
+                    footer = [
+                        f"📑 第 {page_number}/PAGES 页",
+                        *base_footer
+                    ]
+                    full_content = '\n'.join([header_content] + current_page + footer)
+                    pages.append(full_content)
 
                 # 更新总页数
                 total_pages = len(pages)
@@ -225,9 +196,9 @@ class VideoSearchPlugin(Star):
 
     @filter.command("翻页")
     async def paginate_results(self, event: AstrMessageEvent, text: str):
-        """智能分页控制"""
+        """精确分页控制"""
         user_id = self._get_user_identity(event)
-        async with self.lock:
+        async with self.lock:  # 线程安全访问
             page_data = self.user_pages.get(user_id)
 
             if not page_data or (time.time() - page_data["timestamp"]) > 300:
@@ -246,7 +217,7 @@ class VideoSearchPlugin(Star):
             new_expiry = time.time() + 300
             new_beijing_time = time.strftime("%H:%M", time.gmtime(new_expiry + 8 * 3600))
             
-            # 使用正则精确替换时间
+            # 正则替换时间
             old_time_pattern = r"⏰ 有效期至 \d{2}:\d{2}"
             updated_content = re.sub(
                 old_time_pattern, 
@@ -254,14 +225,14 @@ class VideoSearchPlugin(Star):
                 page_data["pages"][page_num-1]
             )
             
-            # 保持总有效期不变
-            self.user_pages[user_id]["timestamp"] = new_expiry - 300
+            # 更新存储时间戳
+            self.user_pages[user_id]["timestamp"] = new_expiry - 300  # 保持总有效期不变
             yield event.plain_result(updated_content)
 
     async def _clean_expired_records(self):
         """自动清理任务"""
         while True:
-            async with self.lock:
+            async with self.lock:  # 线程安全清理
                 now = time.time()
                 expired_users = [
                     uid for uid, data in self.user_pages.items()
