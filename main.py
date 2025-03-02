@@ -6,35 +6,47 @@ import urllib.parse
 from bs4 import BeautifulSoup
 import time
 import asyncio
-from astrbot.api.all import *
 
 @register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /vodpage）", "1.2")
 class VideoSearchPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
-        # API配置
         self.api_url_vod = config.get("api_url_vod", "").split(',')
         self.api_url_18 = config.get("api_url_18", "").split(',')
         self.records = int(config.get("records", "3"))
-        # 用户分页数据（user_id: {pages, timestamp, total_pages}）
-        self.user_pages = {}
-        
-    async def _common_handler(self, event, api_urls, keyword):
+        self.user_pages = {}  # 用户分页数据存储
+
+    def _get_user_identity(self, event: AstrMessageEvent) -> str:
+        """安全获取用户唯一标识（核心修复点）"""
+        try:
+            # 标准方法获取用户ID
+            if hasattr(event, 'get_sender_id'):
+                return event.get_sender_id()
+            # 兼容旧版微信平台事件格式
+            elif hasattr(event, 'user') and hasattr(event.user, 'openid'):
+                return f"wechat-{event.user.openid}"
+            # 通用备选方案
+            return f"{event.platform}-{hash(event)}"
+        except Exception as e:
+            self.context.logger.error(f"获取用户标识失败: {str(e)}")
+            return "unknown_user"
+
+    async def _common_handler(self, event: AstrMessageEvent, api_urls: list, keyword: str):
         """核心搜索逻辑（完整实现）"""
+        user_id = self._get_user_identity(event)
         total_attempts = len(api_urls)
         successful_apis = 0
-        grouped_results = {}  # 按标题聚合结果
-        ordered_titles = []   # 标题顺序记录
+        grouped_results = {}
+        ordered_titles = []
         
-        # 遍历所有API源
+        # API请求处理
         for api_url in api_urls:
             api_url = api_url.strip()
             if not api_url:
                 continue
 
             try:
-                # 构建请求URL
                 encoded_keyword = urllib.parse.quote(keyword)
                 query_url = f"{api_url}?ac=videolist&wd={encoded_keyword}"
                 
@@ -48,14 +60,12 @@ class VideoSearchPlugin(Star):
                         soup = BeautifulSoup(html_content, 'html.parser')
                         video_items = soup.select('rss list video')[:self.records]
                         
-                        # 处理每个视频项
+                        # 处理视频项
                         for item in video_items:
                             title = item.select_one('name').text.strip() if item.select_one('name') else "未知标题"
-                            # 提取所有播放链接
                             for dd in item.select('dl > dd'):
                                 for url in dd.text.split('#'):
-                                    url = url.strip()
-                                    if url:
+                                    if (url := url.strip()):
                                         if title not in grouped_results:
                                             grouped_results[title] = []
                                             ordered_titles.append(title)
@@ -75,8 +85,7 @@ class VideoSearchPlugin(Star):
             urls = grouped_results.get(title, [])
             result_lines.append(f"{idx}. 【{title}】")
             for url in urls:
-                line = f"   🎬 {url}"
-                result_lines.append(line)
+                result_lines.append(f"   🎬 {url}")
                 m3u8_flags.append(url.endswith('.m3u8'))
 
         # 分页处理逻辑
@@ -96,40 +105,45 @@ class VideoSearchPlugin(Star):
             ]
             header_str = "\n".join(header_lines) + "\n"
             footer_str = "\n" + "\n".join(footer_lines)
-            m3u8_indices = [i for i, flag in enumerate(m3u8_flags) if flag]
             
             current_start = 0
             while current_start < len(result_lines):
-                # 寻找分页点
-                possible_ends = [i for i in m3u8_indices if i >= current_start]
+                # 寻找分页断点
+                possible_ends = [
+                    i for i, flag in enumerate(m3u8_flags[current_start:], current_start)
+                    if flag
+                ]
                 if not possible_ends:
                     break
                 
                 # 确定最佳分页位置
                 best_end = None
                 for end in reversed(possible_ends):
-                    content_lines = result_lines[current_start:end+1]
-                    content_length = sum(len(line) + 1 for line in content_lines)
+                    content_length = sum(
+                        len(line) + 1 
+                        for line in result_lines[current_start:end+1]
+                    )
                     if (len(header_str) + content_length + len(footer_str)) <= 1000:
                         best_end = end
                         break
-                if best_end is None:
-                    best_end = possible_ends[0]
+                best_end = best_end or possible_ends[0]
                 
                 # 生成分页内容
-                page_content = header_str + "\n".join(content_lines) + footer_str
+                page_content = (
+                    header_str +
+                    "\n".join(result_lines[current_start:best_end+1]) +
+                    footer_str
+                )
                 pages.append(page_content)
                 current_start = best_end + 1
 
             # 存储分页数据
-            user_id = event.user_id  # 根据实际接口获取用户ID
             self.user_pages[user_id] = {
                 "pages": pages,
                 "timestamp": time.time(),
                 "total_pages": len(pages),
                 "search_info": f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n📊 找到 {total_videos} 条资源"
             }
-            # 返回第一页
             yield event.plain_result(pages[0])
         else:
             yield event.plain_result(f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n{'━'*30}\n未找到相关资源")
@@ -155,7 +169,7 @@ class VideoSearchPlugin(Star):
     @filter.command("vodpage")
     async def paginate_results(self, event: AstrMessageEvent, text: str):
         """分页查看结果"""
-        user_id = event.user_id
+        user_id = self._get_user_identity(event)
         page_data = self.user_pages.get(user_id)
 
         # 验证数据有效性
@@ -181,9 +195,9 @@ class VideoSearchPlugin(Star):
             "━" * 30
         ]
         
-        # 替换原有footer
+        # 替换footer内容
         content_lines = page_content.split("\n")
-        content_lines[-6:-3] = new_footer  # 根据实际footer位置调整
+        content_lines[-6:-3] = new_footer  # 替换原有footer部分
         
         yield event.plain_result("\n".join(content_lines))
 
@@ -197,7 +211,7 @@ class VideoSearchPlugin(Star):
             ]
             for uid in expired_users:
                 del self.user_pages[uid]
-            await asyncio.sleep(60)  # 每分钟检查一次
+            await asyncio.sleep(60)
 
     async def activate(self):
         """启动插件"""
