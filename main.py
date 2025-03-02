@@ -97,7 +97,6 @@ class VideoSearchPlugin(Star):
                     "💡 播放提示：",
                     "1. 移动端直接粘贴链接到浏览器",
                     "2. 电脑端推荐使用PotPlayer/VLC播放",
-                    "3. 使用:/翻页 页码(跳转页面)",
                     "━" * 28
                 ]
 
@@ -110,6 +109,7 @@ class VideoSearchPlugin(Star):
                 header_length = len(header_content) + 1  # 包含换行符
                 base_footer = [
                     f"⏰ 有效期至 {beijing_time}（北京时间）",
+                     "📑 使用:/翻页 页码(跳转页面)",
                     *footer_base
                 ]
                 footer_content = '\n'.join(base_footer)
