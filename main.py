@@ -49,7 +49,7 @@ class VideoSearchPlugin(Star):
                     query_url = f"{api_url}?ac=videolist&wd={encoded_keyword}"
                     
                     async with aiohttp.ClientSession() as session:
-                        async with session.get(query_url, timeout=15, ssl=False) as response:
+                        async with session.get(query_url, timeout=15) as response:
                             if response.status != 200:
                                 continue
                                 
