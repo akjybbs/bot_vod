@@ -137,7 +137,7 @@ class VideoSearchPlugin(Star):
 
                     # 构建页脚
                     page_footer = [
-                        "━" * 25,
+                        "━" * 28,
                         f"📑 第 {len(pages)+1}/PAGES 页。",
                         *time_footer
                     ]
