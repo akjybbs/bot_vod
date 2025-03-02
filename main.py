@@ -8,7 +8,7 @@ import time
 import asyncio
 import re
 
-@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /vodpage）", "2.0.2")
+@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "2.0.2")
 class VideoSearchPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -97,8 +97,17 @@ class VideoSearchPlugin(Star):
                 "💡 播放提示：",
                 "1. 移动端直接粘贴链接到浏览器",
                 "2. 电脑端推荐使用PotPlayer/VLC播放",
-                "3. /vodpage 页码(跳转页面)",
+                "3. 使用:/翻页 页码(跳转页面)",
                 "━" * 25
+            ]
+
+            # 生成北京时间有效期
+            expiry_timestamp = time.time() + 300
+            beijing_time = time.strftime("%H:%M", time.gmtime(expiry_timestamp + 8 * 3600))
+            time_footer = [
+                "━" * 25,
+                f"⏰ 有效期至 {beijing_time}（北京时间）",
+                *footer_base
             ]
 
             # 单标题特殊处理
@@ -108,7 +117,7 @@ class VideoSearchPlugin(Star):
                 page_content.append(title_block["title"])
                 for url_info in title_block["urls"]:
                     page_content.append(f"   🎬 {url_info['url']}")
-                page_content.extend(footer_base)
+                page_content.extend(time_footer)
                 pages.append('\n'.join(page_content))
             else:
                 # 多标题分页逻辑
@@ -120,27 +129,23 @@ class VideoSearchPlugin(Star):
                 def finalize_page():
                     nonlocal current_page, last_m3u8_index
                     if last_m3u8_index != -1:
-                        # 找到最近的m3u8分页点
                         split_index = last_m3u8_index + 1
                         final_content = current_page[:split_index]
                         remaining_content = current_page[split_index:]
                     else:
-                        # 没有m3u8时按内容分割
                         final_content = current_page
                         remaining_content = []
 
                     # 构建页脚
                     page_footer = [
                         "━" * 25,
-                        f"📑 第 {len(pages)+1}/PAGES 页。  /vodpage 页码(跳转页面)",
-                        f"⏰ 有效期至 {time.strftime('%H:%M', time.localtime(time.time() + 300))}",
-                        *footer_base
+                        f"📑 第 {len(pages)+1}/PAGES 页。",
+                        *time_footer
                     ]
                     
                     full_content = '\n'.join(header + final_content + page_footer)
                     pages.append(full_content)
                     
-                    # 重置状态
                     current_page = remaining_content
                     current_length = len('\n'.join(header)) + len('\n'.join(current_page)) + 1
                     last_m3u8_index = -1
@@ -150,11 +155,9 @@ class VideoSearchPlugin(Star):
                     title_line = title_block["title"]
                     url_lines = [f"   🎬 {u['url']}" for u in title_block["urls"]]
                     
-                    # 检测是否需要强制分页
                     block_content = [title_line] + url_lines
                     block_length = len('\n'.join(block_content))
                     
-                    # 添加标题前的检查
                     if current_titles >= 2 and current_length + block_length > 1000:
                         while finalize_page():
                             continue
@@ -165,11 +168,9 @@ class VideoSearchPlugin(Star):
                     
                     for i, url_line in enumerate(url_lines):
                         line_length = len(url_line) + 1
-                        # 记录m3u8位置
                         if title_block["urls"][i]["is_m3u8"]:
                             last_m3u8_index = len(current_page)
                         
-                        # 检查长度限制
                         if current_length + line_length > 1000:
                             if finalize_page():
                                 current_page.append(url_line)
@@ -181,7 +182,6 @@ class VideoSearchPlugin(Star):
                             current_page.append(url_line)
                             current_length += line_length
                 
-                # 处理剩余内容
                 while len(current_page) > 0:
                     finalize_page()
 
@@ -219,7 +219,7 @@ class VideoSearchPlugin(Star):
         async for msg in self._common_handler(event, self.api_url_18, text):
             yield msg
 
-    @filter.command("vodpage")
+    @filter.command("翻页")
     async def paginate_results(self, event: AstrMessageEvent, text: str):
         """分页查看结果（精确控制）"""
         user_id = self._get_user_identity(event)
@@ -237,10 +237,15 @@ class VideoSearchPlugin(Star):
             yield event.plain_result(f"⚠️ 请输入有效页码（1-{page_data['total_pages']}）")
             return
 
-        # 动态更新有效期
+        # 动态更新有效期（北京时间）
+        old_expiry_timestamp = page_data['timestamp'] + 300
+        old_beijing_time = time.strftime("%H:%M", time.gmtime(old_expiry_timestamp + 8 * 3600))
+        new_expiry_timestamp = time.time() + 300
+        new_beijing_time = time.strftime("%H:%M", time.gmtime(new_expiry_timestamp + 8 * 3600))
+        
         content = page_data["pages"][page_num-1].replace(
-            time.strftime('%H:%M', time.localtime(page_data['timestamp'] + 300)),
-            time.strftime('%H:%M', time.localtime(time.time() + 300))
+            old_beijing_time,
+            new_beijing_time
         )
         yield event.plain_result(content)
 
