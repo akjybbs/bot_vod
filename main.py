@@ -8,7 +8,7 @@ import time
 import asyncio
 import re
 
-@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "2.0.4")
+@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "2.0.5")
 class VideoSearchPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -29,14 +29,14 @@ class VideoSearchPlugin(Star):
             return "unknown_user"
 
     async def _common_handler(self, event: AstrMessageEvent, api_urls: list, keyword: str):
-        """核心搜索逻辑（精确分页控制）"""
+        """核心搜索逻辑（智能分页优化版）"""
         user_id = self._get_user_identity(event)
         total_attempts = len(api_urls)
         successful_apis = 0
         grouped_results = {}
         ordered_titles = []
 
-        # API请求处理
+        # API请求处理（保持不变）
         for api_url in api_urls:
             api_url = api_url.strip()
             if not api_url:
@@ -82,51 +82,71 @@ class VideoSearchPlugin(Star):
                 "urls": entries
             })
 
-        # 智能分页处理（精确控制）
+        # 智能分页处理（关键优化部分）
         pages = []
         if structured_results:
-            # 基础信息组件
             header = [
                 f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个",
                 f"📊 找到 {sum(len(g['urls']) for g in structured_results)} 条资源",
                 "━" * 28
             ]
             
-            # 有效期计算
             expiry_time = time.strftime("%H:%M", time.gmtime(time.time() + 300 + 8*3600))
             
-            # 分页处理核心逻辑
+            # 分页参数配置
+            MAX_PAGE_SIZE = 980    # 最大页面字符数
+            MIN_PAGE_CONTENT = 400 # 最小页面内容阈值
             current_page = []
-            MAX_PAGE_SIZE = 950  # 预留空间给页脚
-            current_size = len('\n'.join(header))  # 初始头部长度
-            
-            for block_idx, block in enumerate(structured_results):
-                # 构建完整内容块
+            current_size = len('\n'.join(header))
+            pending_blocks = []
+
+            def commit_page():
+                """提交当前页并清空缓存"""
+                nonlocal current_page, current_size
+                if current_page:
+                    pages.append('\n'.join(header + current_page))
+                    current_page.clear()
+                    current_size = len('\n'.join(header))
+
+            for block in structured_results:
                 block_lines = [block["title"]] + [f"   🎬 {u['url']}" for u in block["urls"]]
                 block_content = '\n'.join(block_lines)
                 block_size = len(block_content)
                 
-                # 分页条件判断
+                # 智能合并策略
                 if current_size + block_size > MAX_PAGE_SIZE:
-                    # 生成当前页
-                    if current_page:
-                        pages.append('\n'.join(header + current_page))
+                    if pending_blocks:  # 优先处理积压的小块
+                        current_page.extend(pending_blocks)
+                        current_size += sum(len(bl) for bl in pending_blocks) + len(pending_blocks)
+                        pending_blocks.clear()
+                        commit_page()
                     
-                    # 新起一页（强制包含完整块）
-                    current_page = block_lines
-                    current_size = len('\n'.join(header + current_page))
+                    if block_size > MAX_PAGE_SIZE * 0.7:  # 超大块单独成页
+                        commit_page()
+                        current_page = block_lines
+                        commit_page()
+                    else:
+                        pending_blocks.extend(block_lines)
                 else:
-                    current_page.extend(block_lines)
-                    current_size += block_size + 1  # 加换行符
-                
-                # 最后一块强制生成页面
-                if block_idx == len(structured_results)-1:
-                    pages.append('\n'.join(header + current_page))
-            
-            # 生成最终页数
+                    # 预测添加后的剩余空间
+                    remaining = MAX_PAGE_SIZE - (current_size + block_size)
+                    if remaining > MIN_PAGE_CONTENT:
+                        current_page.extend(block_lines)
+                        current_size += block_size + 1  # +1为换行符
+                    else:
+                        pending_blocks.extend(block_lines)
+
+            # 处理积压的剩余块
+            if pending_blocks:
+                if (MAX_PAGE_SIZE - current_size) > len('\n'.join(pending_blocks)):
+                    current_page.extend(pending_blocks)
+                    commit_page()
+                else:
+                    commit_page()
+                    pages.append('\n'.join(header + pending_blocks))
+
+            # 添加统一页脚
             total_pages = len(pages)
-            
-            # 为每页添加页脚
             for page_num in range(total_pages):
                 pages[page_num] = self._build_page_footer(
                     content=pages[page_num],
@@ -134,7 +154,7 @@ class VideoSearchPlugin(Star):
                     total_pages=total_pages,
                     expiry_time=expiry_time
                 )
-            
+
             # 存储分页数据
             self.user_pages[user_id] = {
                 "pages": pages,
@@ -147,7 +167,7 @@ class VideoSearchPlugin(Star):
             yield event.plain_result(f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n{'━'*30}\n未找到相关资源")
 
     def _build_page_footer(self, content: str, page_num: int, total_pages: int, expiry_time: str) -> str:
-        """构建完整页脚"""
+        """构建完整页脚（修复时间显示）"""
         footer = [
             "━" * 28,
             f"📑 第 {page_num}/{total_pages} 页",
@@ -180,7 +200,7 @@ class VideoSearchPlugin(Star):
 
     @filter.command("翻页")
     async def paginate_results(self, event: AstrMessageEvent, text: str):
-        """分页查看结果（精确控制）"""
+        """分页查看结果（修复时间显示）"""
         user_id = self._get_user_identity(event)
         page_data = self.user_pages.get(user_id)
 
@@ -196,7 +216,7 @@ class VideoSearchPlugin(Star):
             yield event.plain_result(f"⚠️ 请输入有效页码（1-{page_data['total_pages']}）")
             return
 
-        # 更新有效期
+        # 更新有效期（单次替换）
         new_expiry = time.strftime("%H:%M", time.gmtime(time.time() + 300 + 8*3600))
         content = page_data["pages"][page_num-1].replace(
             "有效期至", f"有效期至 {new_expiry}", 1
