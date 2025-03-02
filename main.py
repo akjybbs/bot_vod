@@ -154,6 +154,7 @@ class VideoSearchPlugin(Star):
                 if current_page:
                     page_number = len(pages) + 1
                     footer = [
+                        "━" * 28,
                         f"📑 第 {page_number}/PAGES 页",
                         *base_footer
                     ]
