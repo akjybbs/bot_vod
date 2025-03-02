@@ -7,8 +7,9 @@ from bs4 import BeautifulSoup
 import time
 import asyncio
 import re
+import random
 
-@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "2.1.0")
+@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "3.0.0")
 class VideoSearchPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -17,251 +18,352 @@ class VideoSearchPlugin(Star):
         self.api_url_18 = config.get("api_url_18", "").split(',')
         self.records = int(config.get("records", "3"))
         self.user_pages = {}
-        self.MAX_PAGE_LENGTH = 1000  # 严格限制单页长度
+        self.MAX_PAGE_LENGTH = 1000
+        self.REQUEST_TIMEOUT = 15
+        self.MAX_RETRIES = 2
 
     def _get_user_identity(self, event: AstrMessageEvent) -> str:
-        """用户身份标识"""
+        """生成唯一用户标识"""
         try:
-            if hasattr(event, 'get_sender_id') and callable(event.get_sender_id):
-                return f"{event.platform}-{event.get_sender_id()}"
-            return f"{event.platform}-{hash(event)}"
+            return f"{event.platform}-{event.get_sender_id()}" if hasattr(event, 'get_sender_id') else f"{event.platform}-{hash(event)}"
         except Exception as e:
-            self.context.logger.error(f"用户标识获取失败: {str(e)}")
-            return "unknown"
+            self.context.logger.error(f"用户标识生成失败: {str(e)}")
+            return f"unknown-{int(time.time())}"
 
-    def _create_content_blocks(self, structured_results):
-        """构建不可分割的内容块"""
+    async def _fetch_api(self, url: str, keyword: str, is_adult: bool = False) -> dict:
+        """执行API请求（完整实现）"""
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": urllib.parse.urlparse(url).scheme + "://" + urllib.parse.urlparse(url).netloc + "/"
+        }
+
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        url=url,
+                        params={"wd": keyword} if not is_adult else {"q": keyword},
+                        headers=headers,
+                        timeout=self.REQUEST_TIMEOUT,
+                        proxy=self.config.get("proxy") if not is_adult else None
+                    ) as response:
+                        if response.status != 200:
+                            continue
+
+                        content = await response.text()
+                        soup = BeautifulSoup(content, 'html.parser')
+
+                        # 解析正常资源
+                        if not is_adult:
+                            items = soup.select('div.module-search-item')
+                            return {
+                                "success": True,
+                                "data": [{
+                                    "title": item.select_one('div.video-info-header a').get_text(strip=True),
+                                    "urls": [{
+                                        "url": a['href'],
+                                        "name": a.get_text(strip=True)
+                                    } for a in item.select('div.module-item-cover a')[:self.records]]
+                                } for item in items]
+                            }
+                        # 解析特殊资源
+                        else:
+                            items = soup.select('div.tg-item')
+                            return {
+                                "success": True,
+                                "data": [{
+                                    "title": item.select_one('div.tg-info').get_text(strip=True),
+                                    "urls": [{
+                                        "url": item.select_one('a')['href'],
+                                        "name": item.select_one('img')['alt'].strip()
+                                    }][:self.records]
+                                } for item in items]
+                            }
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                self.context.logger.warning(f"API请求失败（尝试{attempt+1}）: {str(e)}")
+                if attempt < self.MAX_RETRIES - 1:
+                    await asyncio.sleep(1 + random.random())
+        return {"success": False}
+
+    def _build_content_blocks(self, results: list) -> list:
+        """构建分页内容块（完整实现）"""
         blocks = []
-        for result in structured_results:
-            title = result["title"]
-            urls = [f"   🎬 {url['url']}" for url in result["urls"]]
+        for result in results:
+            title = f"🔍 {result['title']}"
+            urls = [f"   🎬 {url['url']} ({url['name']})" for url in result['urls']]
             
-            # 计算块尺寸（包含所有换行符）
-            block_content = [title] + urls
-            total_length = sum(len(line) + 1 for line in block_content)  # 每行加换行符
-            total_length -= 1  # 最后一个换行符不计入
+            # 计算块总长度（包含换行符）
+            block_lines = [title] + urls
+            total_length = sum(len(line) + 1 for line in block_lines) - 1  # 最后一行不加换行符
             
             blocks.append({
+                "type": "resource_block",
+                "lines": block_lines,
+                "length": total_length,
                 "title": title,
-                "content": block_content,
-                "length": total_length
+                "url_count": len(urls)
             })
         return blocks
 
-    def _build_pages(self, header, blocks):
-        """智能分页核心算法"""
+    def _generate_pages(self, header: list, blocks: list) -> list:
+        """分页生成器（完整算法）"""
         pages = []
         current_page = []
-        header_length = sum(len(line) + 1 for line in header)  # 页头固定长度
+        current_length = sum(len(line) + 1 for line in header)  # 页眉长度
         
-        # 基础页脚模板
-        base_footer = [
-            "━" * 28,
-            "📑 第 {current}/{total} 页",
-            "⏰ 有效期至 {time}（北京时间）",
-            "💡 使用 /翻页 页码 切换页面",
-            "━" * 28
+        # 页脚模板
+        footer_template = [
+            "━" * 30,
+            "📖 第 {current_page}/{total_pages} 页",
+            "⏳ 有效期至 {expire_time}（北京时间）",
+            "🔧 使用 /翻页 [页码] 切换页面",
+            "━" * 30
         ]
-        footer_template = '\n'.join(base_footer)
+        footer_length = sum(len(line.format(current_page=1, total_pages=1, expire_time="00:00")) + 1 for line in footer_template) - 1
         
         for block in blocks:
-            # 预计算页脚长度
-            temp_footer = footer_template.format(
-                current=len(pages)+1,
-                total="N",
-                time="00:00"
-            )
-            estimated_footer_length = len(temp_footer)
+            required_space = block['length'] + 2  # 块前后空行
+            test_length = current_length + required_space + footer_length
             
-            # 计算当前页总长度
-            current_content = []
-            if current_page:
-                current_content = [line for b in current_page for line in b["content"]]
-            proposed_content = current_content + block["content"]
-            
-            proposed_page = '\n'.join(header + proposed_content + [temp_footer])
-            proposed_length = len(proposed_page)
-            
-            # 情况1：可以完整加入当前页
-            if proposed_length <= self.MAX_PAGE_LENGTH:
+            # 情况1：可以完整放入当前页
+            if test_length <= self.MAX_PAGE_LENGTH:
                 current_page.append(block)
+                current_length += required_space
                 continue
                 
             # 情况2：需要新建页面
             if current_page:
-                # 生成实际页脚
-                expiry_time = time.strftime("%H:%M", time.gmtime(time.time() + 300 + 8*3600))
-                actual_footer = footer_template.format(
-                    current=len(pages)+1,
-                    total="N",
-                    time=expiry_time
-                )
+                # 生成实际页面内容
+                page_content = []
+                for blk in current_page:
+                    page_content.extend(blk['lines'])
+                    page_content.append('')  # 块间空行
+                page_content.pop()  # 移除最后空行
                 
-                # 生成完整页面内容
-                page_content = [line for b in current_page for line in b["content"]]
-                full_page = '\n'.join(header + page_content + [actual_footer])
+                # 生成完整页面
+                expire_time = time.strftime("%H:%M", time.localtime(time.time() + 300 + 8*3600))
+                footer = [line.format(
+                    current_page=len(pages)+1,
+                    total_pages="TBD",
+                    expire_time=expire_time
+                ) for line in footer_template]
                 
-                # 长度二次校验
-                while len(full_page) > self.MAX_PAGE_LENGTH:
-                    # 移除最后一个块（极端情况处理）
-                    removed_block = current_page.pop()
-                    page_content = [line for b in current_page for line in b["content"]]
-                    full_page = '\n'.join(header + page_content + [actual_footer])
-                
+                full_page = '\n'.join(header + page_content + footer)
                 pages.append(full_page)
                 current_page = []
-            
-            # 处理当前块（可能超长）
-            block_page = '\n'.join(header + block["content"] + [temp_footer])
-            if len(block_page) > self.MAX_PAGE_LENGTH:
-                # 超长块特殊处理：截断URL但保留标题
-                truncated_content = [block["title"], "   （资源过多，已自动截断）"]
-                remain_length = self.MAX_PAGE_LENGTH - len('\n'.join(header + truncated_content + [temp_footer]))
+                current_length = sum(len(line) + 1 for line in header)
                 
-                current_length = sum(len(line)+1 for line in truncated_content)
-                for url in block["content"][1:]:  # 跳过标题
-                    url_length = len(url) + 1
-                    if current_length + url_length > remain_length:
-                        break
-                    truncated_content.append(url)
-                    current_length += url_length
-                
-                # 构建有效页
-                expiry_time = time.strftime("%H:%M", time.gmtime(time.time() + 300 + 8*3600))
-                actual_footer = footer_template.format(
-                    current=len(pages)+1,
-                    total="N",
-                    time=expiry_time
-                )
-                full_page = '\n'.join(header + truncated_content + [actual_footer])
-                pages.append(full_page)
+            # 处理超大块（单独成页）
+            test_length = sum(len(line) + 1 for line in header) + block['length'] + footer_length
+            if test_length > self.MAX_PAGE_LENGTH:
+                # 执行截断处理
+                truncated_lines = [block['title'], "   ⚠️ 部分结果已折叠（完整列表请访问网站）"]
+                for url_line in block['lines'][1:]:
+                    if sum(len(line) + 1 for line in truncated_lines) + footer_length + 50 < self.MAX_PAGE_LENGTH:
+                        truncated_lines.append(url_line)
+                current_page = [{
+                    "type": "truncated_block",
+                    "lines": truncated_lines,
+                    "length": sum(len(line) + 1 for line in truncated_lines) - 1
+                }]
             else:
                 current_page.append(block)
+            current_length = sum(len(line) + 1 for line in header) + current_page[0]['length'] + 2
         
         # 处理最后一页
         if current_page:
-            expiry_time = time.strftime("%H:%M", time.gmtime(time.time() + 300 + 8*3600))
-            page_content = [line for b in current_page for line in b["content"]]
-            actual_footer = footer_template.format(
-                current=len(pages)+1,
-                total="N",
-                time=expiry_time
-            )
-            full_page = '\n'.join(header + page_content + [actual_footer])
+            page_content = []
+            for blk in current_page:
+                page_content.extend(blk['lines'])
+                page_content.append('')
+            page_content.pop()
+            
+            expire_time = time.strftime("%H:%M", time.localtime(time.time() + 300 + 8*3600))
+            footer = [line.format(
+                current_page=len(pages)+1,
+                total_pages="TBD",
+                expire_time=expire_time
+            ) for line in footer_template]
+            
+            full_page = '\n'.join(header + page_content + footer)
             pages.append(full_page)
         
         # 更新总页数
-        total_pages = len(pages)
-        for i in range(len(pages)):
-            pages[i] = pages[i].replace("total=\"N\"", f"total={total_pages}").replace(" total=N", f" {total_pages}")
+        for idx in range(len(pages)):
+            pages[idx] = pages[idx].replace("TBD", str(len(pages)))
         
         return pages
 
-    async def _common_handler(self, event: AstrMessageEvent, api_urls: list, keyword: str):
-        # ... [保持原有的API请求处理逻辑，生成structured_results] ...
-
-        if structured_results:
+    @filter.command("vod")
+    async def search_normal(self, event: AstrMessageEvent, text: str):
+        """普通资源搜索（完整实现）"""
+        keyword = text.strip()
+        if not keyword:
+            yield event.plain_result("🔍 请输入搜索关键词，例如：/vod 流浪地球")
+            return
+        
+        results = []
+        total_apis = len(self.api_url_vod)
+        successful_apis = 0
+        
+        async with event.loading("🔍 搜索中..."):
+            for api_url in self.api_url_vod:
+                try:
+                    response = await self._fetch_api(api_url, keyword)
+                    if response['success'] and response['data']:
+                        results.extend(response['data'])
+                        successful_apis += 1
+                except Exception as e:
+                    self.context.logger.error(f"API处理失败：{str(e)}")
+        
+        if results:
             header = [
-                f"🔍 搜索 {len(api_urls)} 个源｜成功 {successful_apis} 个",
-                f"📊 找到 {sum(len(r['urls']) for r in structured_results)} 条资源",
-                "━" * 28
+                f"🔍 搜索 {total_apis} 个源｜成功 {successful_apis} 个",
+                f"📚 找到 {sum(len(res['urls']) for res in results)} 条资源",
+                "━" * 30
             ]
             
-            # 构建内容块并分页
-            blocks = self._create_content_blocks(structured_results)
-            pages = self._build_pages(header, blocks)
+            # 构建分页
+            blocks = self._build_content_blocks(results)
+            pages = self._generate_pages(header, blocks)
             
-            # 存储分页数据
+            # 存储分页状态
             user_id = self._get_user_identity(event)
             self.user_pages[user_id] = {
                 "pages": pages,
                 "timestamp": time.time(),
-                "total_pages": len(pages)
+                "total_pages": len(pages),
+                "search_type": "normal"
             }
             
             yield event.plain_result(pages[0])
         else:
-            yield event.plain_result("⚠️ 未找到相关资源")
+            yield event.plain_result(f"⚠️ 未找到【{keyword}】相关资源\n尝试更换关键词或稍后重试")
+
+    @filter.command("vodd")
+    async def search_adult(self, event: AstrMessageEvent, text: str):
+        """特殊资源搜索（完整实现）"""
+        if not self.config.get("enable_adult"):
+            yield event.plain_result("⛔ 此功能暂未开放")
+            return
+        
+        keyword = text.strip()
+        if not keyword:
+            yield event.plain_result("🔞 请输入搜索关键词")
+            return
+        
+        results = []
+        successful_apis = 0
+        
+        async with event.loading("🔍 特殊搜索中..."):
+            for api_url in self.api_url_18:
+                try:
+                    response = await self._fetch_api(api_url, keyword, is_adult=True)
+                    if response['success'] and response['data']:
+                        results.extend(response['data'])
+                        successful_apis += 1
+                except Exception as e:
+                    self.context.logger.error(f"特殊API失败：{str(e)}")
+        
+        if results:
+            header = [
+                f"🔞 搜索 {len(self.api_url_18)} 个源｜成功 {successful_apis} 个",
+                f"📚 找到 {sum(len(res['urls']) for res in results)} 条特殊资源",
+                "⚠️ 本结果保留5分钟",
+                "━" * 30
+            ]
+            
+            blocks = self._build_content_blocks(results)
+            pages = self._generate_pages(header, blocks)
+            
+            user_id = self._get_user_identity(event)
+            self.user_pages[user_id] = {
+                "pages": pages,
+                "timestamp": time.time(),
+                "total_pages": len(pages),
+                "search_type": "adult"
+            }
+            
+            yield event.plain_result(pages[0])
+        else:
+            yield event.plain_result(f"⚠️ 未找到【{keyword}】相关特殊资源")
 
     @filter.command("翻页")
-    async def paginate_results(self, event: AstrMessageEvent, text: str):
-        """智能翻页处理"""
+    async def paginate(self, event: AstrMessageEvent, text: str):
+        """分页处理（完整实现）"""
         user_id = self._get_user_identity(event)
         page_data = self.user_pages.get(user_id)
-
+        
         # 有效性检查
-        if not page_data or (time.time() - page_data["timestamp"]) > 300:
+        if not page_data or time.time() - page_data['timestamp'] > 300:
             yield event.plain_result("⏳ 搜索结果已过期，请重新搜索")
             return
-
-        # 增强版页码解析
-        text = text.strip().lower()
-        cn_num_map = {
-            '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
-            '首': 1, '首页': 1, '末': page_data["total_pages"], '尾页': page_data["total_pages"]
-        }
         
-        # 匹配多种格式：第2页、page3、直接数字等
-        match = re.match(r"^(?:第|page)?(\d+|[\u4e00-\u9fa5]+)[页]?$", text)
+        # 智能页码解析
+        text = text.strip().lower()
+        cn_num_map = {'一':1, '二':2, '三':3, '四':4, '五':5, '末': page_data['total_pages']}
+        match = re.match(r"^(?:第|p)?(\d+|[\u4e00-\u9fa5]{1,3})[页]?$", text)
+        
+        page_num = 0
         if match:
-            raw_num = match.group(1)
-            if raw_num in cn_num_map:
-                page_num = cn_num_map[raw_num]
+            raw = match.group(1)
+            if raw in cn_num_map:
+                page_num = cn_num_map[raw]
             else:
                 try:
-                    page_num = int(raw_num)
-                except ValueError:
-                    page_num = 0
+                    page_num = int(raw)
+                except:
+                    pass
         else:
             try:
-                page_num = int(re.sub(r"\D", "", text))
+                page_num = int(text)
             except:
-                page_num = 0
-
+                pass
+        
         # 边界检查
-        if not 1 <= page_num <= page_data["total_pages"]:
-            yield event.plain_result(
-                f"⚠️ 无效页码\n"
-                f"当前共 {page_data['total_pages']} 页\n"
-                f"支持格式：\n"
-                f"· 数字（2）\n"
-                f"· 中文（二）\n"
-                f"· 第X页"
-            )
+        if not 1 <= page_num <= page_data['total_pages']:
+            help_msg = [
+                f"⚠️ 无效页码（1-{page_data['total_pages']}）",
+                "支持格式：",
+                "· 数字：2",
+                "· 中文：二",
+                "· 带页码：第3页",
+                f"当前共 {page_data['total_pages']} 页"
+            ]
+            yield event.plain_result('\n'.join(help_msg))
             return
-
+        
         # 更新有效期
-        new_expiry = time.time() + 300
-        new_time = time.strftime("%H:%M", time.gmtime(new_expiry + 8*3600))
+        new_expire = time.time() + 300
+        new_time_str = time.strftime("%H:%M", time.localtime(new_expire + 8*3600))
         updated_page = re.sub(
-            r"有效期至 \d{2}:\d{2}",
-            f"有效期至 {new_time}",
-            page_data["pages"][page_num-1]
+            r'有效期至 \d{2}:\d{2}',
+            f'有效期至 {new_time_str}',
+            page_data['pages'][page_num-1]
         )
         
-        # 更新时间戳但保持页面内容不变
-        self.user_pages[user_id]["timestamp"] = new_expiry - 300
+        # 更新存储时间
+        self.user_pages[user_id]['timestamp'] = new_expire - 300
         
         yield event.plain_result(updated_page)
 
-    async def _clean_expired_records(self):
-        """内存保护机制"""
+    async def _cleanup_task(self):
+        """定时清理任务（完整实现）"""
         while True:
             now = time.time()
-            expired = []
+            to_remove = []
             
             for user_id, data in self.user_pages.items():
-                # 清理超过5分钟或超过50页的记录
-                if (now - data["timestamp"] > 300) or (data["total_pages"] > 50):
-                    expired.append(user_id)
+                if now - data['timestamp'] > 300 or data['total_pages'] > 50:
+                    to_remove.append(user_id)
             
-            for user_id in expired:
+            for user_id in to_remove:
                 del self.user_pages[user_id]
-                self.context.logger.info(f"清理用户记录: {user_id}")
+                self.context.logger.info(f"清理用户分页数据：{user_id}")
             
             await asyncio.sleep(60)
 
     async def activate(self):
-        """激活插件"""
+        """激活插件（完整实现）"""
         await super().activate()
-        asyncio.create_task(self._clean_expired_records())
+        asyncio.create_task(self._cleanup_task())
