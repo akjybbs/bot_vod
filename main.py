@@ -8,7 +8,7 @@ import time
 import asyncio
 import re
 
-@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "2.0.3")
+@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "2.0.4")
 class VideoSearchPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -96,47 +96,58 @@ class VideoSearchPlugin(Star):
             expiry_time = time.strftime("%H:%M", time.gmtime(time.time() + 300 + 8*3600))
             
             # 分页处理核心逻辑
-            PAGE_SIZE = 980  # 预留空间给页脚
             current_page = []
-            current_length = len('\n'.join(header))  # 初始长度
+            MAX_PAGE_SIZE = 950  # 预留空间给页脚
+            current_size = len('\n'.join(header))  # 初始头部长度
             
-            for block in structured_results:
+            for block_idx, block in enumerate(structured_results):
                 # 构建完整内容块
-                block_content = [block["title"]] + [f"   🎬 {u['url']}" for u in block["urls"]]
-                block_text = '\n'.join(block_content)
-                block_size = len(block_text)
+                block_lines = [block["title"]] + [f"   🎬 {u['url']}" for u in block["urls"]]
+                block_content = '\n'.join(block_lines)
+                block_size = len(block_content)
                 
-                # 智能分页判断
-                if current_length + block_size > PAGE_SIZE:
+                # 分页条件判断
+                if current_size + block_size > MAX_PAGE_SIZE:
                     # 生成当前页
                     if current_page:
-                        pages.append(self._build_page(current_page, header, expiry_time, len(pages)+1, 0))
+                        pages.append('\n'.join(header + current_page))
                     
-                    # 新起一页（强制完整块）
-                    current_page = block_content
-                    current_length = len('\n'.join(header + current_page))
+                    # 新起一页（强制包含完整块）
+                    current_page = block_lines
+                    current_size = len('\n'.join(header + current_page))
                 else:
-                    current_page.extend(block_content)
-                    current_length += block_size + 1  # 加换行符
-                    
-            # 处理最后一页
-            if current_page:
-                pages.append(self._build_page(current_page, header, expiry_time, len(pages)+1, len(pages)+1))
+                    current_page.extend(block_lines)
+                    current_size += block_size + 1  # 加换行符
+                
+                # 最后一块强制生成页面
+                if block_idx == len(structured_results)-1:
+                    pages.append('\n'.join(header + current_page))
+            
+            # 生成最终页数
+            total_pages = len(pages)
+            
+            # 为每页添加页脚
+            for page_num in range(total_pages):
+                pages[page_num] = self._build_page_footer(
+                    content=pages[page_num],
+                    page_num=page_num+1,
+                    total_pages=total_pages,
+                    expiry_time=expiry_time
+                )
             
             # 存储分页数据
             self.user_pages[user_id] = {
                 "pages": pages,
                 "timestamp": time.time(),
-                "total_pages": len(pages),
+                "total_pages": total_pages,
                 "search_info": f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n📊 找到 {sum(len(g['urls']) for g in structured_results)} 条资源"
             }
-            yield event.plain_result(pages[0][0])
+            yield event.plain_result(pages[0])
         else:
             yield event.plain_result(f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n{'━'*30}\n未找到相关资源")
 
-    def _build_page(self, content_lines, header, expiry_time, page_num, total_pages):
-        """构建完整页面结构"""
-        # 页脚组件
+    def _build_page_footer(self, content: str, page_num: int, total_pages: int, expiry_time: str) -> str:
+        """构建完整页脚"""
         footer = [
             "━" * 28,
             f"📑 第 {page_num}/{total_pages} 页",
@@ -147,12 +158,7 @@ class VideoSearchPlugin(Star):
             "3. 使用:/翻页 页码(跳转页面)",
             "━" * 28
         ]
-        
-        # 组合完整内容
-        full_content = '\n'.join(header + content_lines + footer)
-        
-        # 动态替换总页数
-        return (full_content.replace(f"/{total_pages}", f"/{total_pages}"), total_pages)
+        return content.replace("━" * 28, '\n'.join(footer), 1)
 
     @filter.command("vod")
     async def search_normal(self, event: AstrMessageEvent, text: str):
@@ -192,8 +198,8 @@ class VideoSearchPlugin(Star):
 
         # 更新有效期
         new_expiry = time.strftime("%H:%M", time.gmtime(time.time() + 300 + 8*3600))
-        content = page_data["pages"][page_num-1][0].replace(
-            "有效期至", f"有效期至 {new_expiry}"
+        content = page_data["pages"][page_num-1].replace(
+            "有效期至", f"有效期至 {new_expiry}", 1
         )
         yield event.plain_result(content)
 
