@@ -90,22 +90,21 @@ class VideoSearchPlugin(Star):
             header = [
                 f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个",
                 f"📊 找到 {sum(len(g['urls']) for g in structured_results)} 条资源",
-                "━" * 25
+                "━" * 28
             ]
             footer_base = [
-                "━" * 25,
+                "━" * 28,
                 "💡 播放提示：",
                 "1. 移动端直接粘贴链接到浏览器",
                 "2. 电脑端推荐使用PotPlayer/VLC播放",
                 "3. 使用:/翻页 页码(跳转页面)",
-                "━" * 25
+                "━" * 28
             ]
 
             # 生成北京时间有效期
             expiry_timestamp = time.time() + 300
             beijing_time = time.strftime("%H:%M", time.gmtime(expiry_timestamp + 8 * 3600))
             time_footer = [
-                "━" * 25,
                 f"⏰ 有效期至 {beijing_time}（北京时间）",
                 *footer_base
             ]
