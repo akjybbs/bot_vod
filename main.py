@@ -8,7 +8,7 @@ import time
 import asyncio
 import re
 
-@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "2.0.7")
+@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "2.0.8")
 class VideoSearchPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -179,12 +179,12 @@ class VideoSearchPlugin(Star):
                 "total_pages": total_pages,
                 "search_info": f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n📊 找到 {sum(len(g['urls']) for g in structured_results)} 条资源"
             }
-            yield event.plain_result(pages[0])
+            yield event.plain_result(pages)
         else:
             yield event.plain_result(f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n{'━'*30}\n未找到相关资源")
 
     def _build_page_footer(self, content: str, page_num: int, total_pages: int, expiry_time: str) -> str:
-        """构建页脚（精确时间处理）"""
+        """构建页脚（完全保持原始格式）"""
         footer = [
             "━" * 28,
             f"📑 第 {page_num}/{total_pages} 页",
@@ -195,11 +195,12 @@ class VideoSearchPlugin(Star):
             "3. 使用:/翻页 页码(跳转页面)",
             "━" * 28
         ]
-        return re.sub(r'━{28}.*?━{28}', '\n'.join(footer), content, count=1, flags=re.DOTALL)
+        # 精准替换第一个分隔线后的所有内容
+        return re.sub(r'━{28}.*', '\n'.join(footer), content, count=1, flags=re.DOTALL)
 
     @filter.command("翻页")
     async def paginate_results(self, event: AstrMessageEvent, text: str):
-        """分页查看结果（精确时间更新）"""
+        """分页逻辑（保持原始页脚结构）"""
         user_id = self._get_user_identity(event)
         page_data = self.user_pages.get(user_id)
 
@@ -215,9 +216,9 @@ class VideoSearchPlugin(Star):
             yield event.plain_result(f"⚠️ 请输入有效页码（1-{page_data['total_pages']}）")
             return
 
-        # 精确时间更新（正则替换）
+        # 精确更新有效期
         new_expiry = time.strftime("%H:%M", time.gmtime(time.time() + 300 + 8*3600))
-        pattern = r'(⏰ 有效期至 )\d{2}:\d{2}'
+        pattern = r'(⏰ 有效期至 )\d{2}:\d{2}（北京时间）'
         content = re.sub(pattern, f'\\g<1>{new_expiry}', page_data["pages"][page_num-1], count=1)
         yield event.plain_result(content)
 
