@@ -125,16 +125,20 @@ class VideoSearchPlugin(Star):
                 current_titles = 0
                 last_m3u8_index = -1
 
-                def finalize_page():
+                def finalize_page(is_last_block=False):
                     nonlocal current_page, last_m3u8_index
-                    if last_m3u8_index != -1:
-                        split_index = last_m3u8_index + 1
-                        final_content = current_page[:split_index]
-                        remaining_content = current_page[split_index:]
-                    else:
+                    if is_last_block:
                         final_content = current_page
                         remaining_content = []
-
+                    else:
+                        if last_m3u8_index != -1:
+                            split_index = last_m3u8_index + 1
+                            final_content = current_page[:split_index]
+                            remaining_content = current_page[split_index:]
+                        else:
+                            final_content = current_page
+                            remaining_content = []
+                    
                     # 构建页脚
                     page_footer = [
                         "━" * 28,
@@ -146,41 +150,56 @@ class VideoSearchPlugin(Star):
                     pages.append(full_content)
                     
                     current_page = remaining_content
-                    current_length = len('\n'.join(header)) + len('\n'.join(current_page)) + 1
+                    current_length = len('\n'.join(header)) + len('\n'.join(current_page)) + 1 if current_page else 0
                     last_m3u8_index = -1
                     return len(remaining_content) > 0
 
-                for title_block in structured_results:
+                for idx, title_block in enumerate(structured_results):
+                    is_last_block = idx == len(structured_results) - 1
                     title_line = title_block["title"]
                     url_lines = [f"   🎬 {u['url']}" for u in title_block["urls"]]
-                    
                     block_content = [title_line] + url_lines
                     block_length = len('\n'.join(block_content))
                     
-                    if current_titles >= 2 and current_length + block_length > 1000:
-                        while finalize_page():
-                            continue
+                    if is_last_block:
+                        # 强制添加到当前页，不检查长度
+                        current_page.append(title_line)
+                        current_length += len(title_line) + 1
+                        current_titles += 1
+                        for i, url_line in enumerate(url_lines):
+                            current_page.append(url_line)
+                            current_length += len(url_line) + 1
+                            if title_block["urls"][i]["is_m3u8"]:
+                                last_m3u8_index = len(current_page) - 1
+                        # 分页处理，确保整个块在同一页
+                        finalize_page(is_last_block=True)
+                        continue
+                    else:
+                        if current_titles >= 2 and current_length + block_length > 1000:
+                            while finalize_page():
+                                continue
                         
-                    current_page.append(title_line)
-                    current_length += len(title_line) + 1
-                    current_titles += 1
-                    
-                    for i, url_line in enumerate(url_lines):
-                        line_length = len(url_line) + 1
-                        if title_block["urls"][i]["is_m3u8"]:
-                            last_m3u8_index = len(current_page)
+                        current_page.append(title_line)
+                        current_length += len(title_line) + 1
+                        current_titles += 1
                         
-                        if current_length + line_length > 1000:
-                            if finalize_page():
-                                current_page.append(url_line)
-                                current_length += line_length
+                        for i, url_line in enumerate(url_lines):
+                            line_length = len(url_line) + 1
+                            if title_block["urls"][i]["is_m3u8"]:
+                                last_m3u8_index = len(current_page)
+                            
+                            if current_length + line_length > 1000:
+                                if finalize_page():
+                                    current_page.append(url_line)
+                                    current_length += line_length
+                                else:
+                                    current_page.append(url_line)
+                                    current_length = len('\n'.join(header)) + line_length + 1
                             else:
                                 current_page.append(url_line)
-                                current_length = len('\n'.join(header)) + line_length + 1
-                        else:
-                            current_page.append(url_line)
-                            current_length += line_length
+                                current_length += line_length
                 
+                # 处理剩余内容（非最后一个块的情况）
                 while len(current_page) > 0:
                     finalize_page()
 
