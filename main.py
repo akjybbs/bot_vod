@@ -6,6 +6,7 @@ import urllib.parse
 from bs4 import BeautifulSoup
 import time
 import asyncio
+from astrbot.api.all import *
 
 @register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /vodpage）", "1.2")
 class VideoSearchPlugin(Star):
