@@ -8,7 +8,7 @@ import time
 import asyncio
 import re
 
-@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "2.0.2")
+@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "2.0.3")
 class VideoSearchPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -21,10 +21,8 @@ class VideoSearchPlugin(Star):
     def _get_user_identity(self, event: AstrMessageEvent) -> str:
         """用户标识获取（增强版）"""
         try:
-            if hasattr(event, 'get_sender_id') and callable(event.get_sender_id):
-                return event.get_sender_id()
-            elif hasattr(event, 'user') and hasattr(event.user, 'openid'):
-                return f"wechat-{event.user.openid}"
+            if hasattr(event, 'get_sender_id'):
+                return f"{event.platform}-{event.get_sender_id()}"
             return f"{event.platform}-{hash(event)}"
         except Exception as e:
             self.context.logger.error(f"标识获取异常: {str(e)}")
@@ -87,137 +85,74 @@ class VideoSearchPlugin(Star):
         # 智能分页处理（精确控制）
         pages = []
         if structured_results:
+            # 基础信息组件
             header = [
                 f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个",
                 f"📊 找到 {sum(len(g['urls']) for g in structured_results)} 条资源",
                 "━" * 28
             ]
-            footer_base = [
-                "━" * 28,
-                "💡 播放提示：",
-                "1. 移动端直接粘贴链接到浏览器",
-                "2. 电脑端推荐使用PotPlayer/VLC播放",
-                "3. 使用:/翻页 页码(跳转页面)",
-                "━" * 28
-            ]
-
-            # 生成北京时间有效期
-            expiry_timestamp = time.time() + 300
-            beijing_time = time.strftime("%H:%M", time.gmtime(expiry_timestamp + 8 * 3600))
-            time_footer = [
-                f"⏰ 有效期至 {beijing_time}（北京时间）",
-                *footer_base
-            ]
-
-            # 单标题特殊处理
-            if len(structured_results) == 1:
-                page_content = [header[0], header[1], header[2]]
-                title_block = structured_results[0]
-                page_content.append(title_block["title"])
-                for url_info in title_block["urls"]:
-                    page_content.append(f"   🎬 {url_info['url']}")
-                page_content.extend(time_footer)
-                pages.append('\n'.join(page_content))
-            else:
-                # 多标题分页逻辑
-                current_page = []
-                current_length = len('\n'.join(header)) + 1
-                current_titles = 0
-                last_m3u8_index = -1
-
-                def finalize_page(is_last_block=False):
-                    nonlocal current_page, last_m3u8_index
-                    if is_last_block:
-                        final_content = current_page
-                        remaining_content = []
-                    else:
-                        if last_m3u8_index != -1:
-                            split_index = last_m3u8_index + 1
-                            final_content = current_page[:split_index]
-                            remaining_content = current_page[split_index:]
-                        else:
-                            final_content = current_page
-                            remaining_content = []
-                    
-                    # 构建页脚
-                    page_footer = [
-                        "━" * 28,
-                        f"📑 第 {len(pages)+1}/PAGES 页。",
-                        *time_footer
-                    ]
-                    
-                    full_content = '\n'.join(header + final_content + page_footer)
-                    pages.append(full_content)
-                    
-                    current_page = remaining_content
-                    current_length = len('\n'.join(header)) + len('\n'.join(current_page)) + 1 if current_page else 0
-                    last_m3u8_index = -1
-                    return len(remaining_content) > 0
-
-                for idx, title_block in enumerate(structured_results):
-                    is_last_block = idx == len(structured_results) - 1
-                    title_line = title_block["title"]
-                    url_lines = [f"   🎬 {u['url']}" for u in title_block["urls"]]
-                    block_content = [title_line] + url_lines
-                    block_length = len('\n'.join(block_content))
-                    
-                    if is_last_block:
-                        # 强制添加到当前页，不检查长度
-                        current_page.append(title_line)
-                        current_length += len(title_line) + 1
-                        current_titles += 1
-                        for i, url_line in enumerate(url_lines):
-                            current_page.append(url_line)
-                            current_length += len(url_line) + 1
-                            if title_block["urls"][i]["is_m3u8"]:
-                                last_m3u8_index = len(current_page) - 1
-                        # 分页处理，确保整个块在同一页
-                        finalize_page(is_last_block=True)
-                        continue
-                    else:
-                        if current_titles >= 2 and current_length + block_length > 1000:
-                            while finalize_page():
-                                continue
-                        
-                        current_page.append(title_line)
-                        current_length += len(title_line) + 1
-                        current_titles += 1
-                        
-                        for i, url_line in enumerate(url_lines):
-                            line_length = len(url_line) + 1
-                            if title_block["urls"][i]["is_m3u8"]:
-                                last_m3u8_index = len(current_page)
-                            
-                            if current_length + line_length > 1000:
-                                if finalize_page():
-                                    current_page.append(url_line)
-                                    current_length += line_length
-                                else:
-                                    current_page.append(url_line)
-                                    current_length = len('\n'.join(header)) + line_length + 1
-                            else:
-                                current_page.append(url_line)
-                                current_length += line_length
+            
+            # 有效期计算
+            expiry_time = time.strftime("%H:%M", time.gmtime(time.time() + 300 + 8*3600))
+            
+            # 分页处理核心逻辑
+            PAGE_SIZE = 980  # 预留空间给页脚
+            current_page = []
+            current_length = len('\n'.join(header))  # 初始长度
+            
+            for block in structured_results:
+                # 构建完整内容块
+                block_content = [block["title"]] + [f"   🎬 {u['url']}" for u in block["urls"]]
+                block_text = '\n'.join(block_content)
+                block_size = len(block_text)
                 
-                # 处理剩余内容（非最后一个块的情况）
-                while len(current_page) > 0:
-                    finalize_page()
-
-            # 更新总页数
-            total_pages = len(pages)
-            for i in range(len(pages)):
-                pages[i] = pages[i].replace("PAGES", str(total_pages))
-                
+                # 智能分页判断
+                if current_length + block_size > PAGE_SIZE:
+                    # 生成当前页
+                    if current_page:
+                        pages.append(self._build_page(current_page, header, expiry_time, len(pages)+1, 0))
+                    
+                    # 新起一页（强制完整块）
+                    current_page = block_content
+                    current_length = len('\n'.join(header + current_page))
+                else:
+                    current_page.extend(block_content)
+                    current_length += block_size + 1  # 加换行符
+                    
+            # 处理最后一页
+            if current_page:
+                pages.append(self._build_page(current_page, header, expiry_time, len(pages)+1, len(pages)+1))
+            
             # 存储分页数据
             self.user_pages[user_id] = {
                 "pages": pages,
                 "timestamp": time.time(),
-                "total_pages": total_pages,
+                "total_pages": len(pages),
                 "search_info": f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n📊 找到 {sum(len(g['urls']) for g in structured_results)} 条资源"
             }
-            yield event.plain_result(pages[0])
+            yield event.plain_result(pages[0][0])
         else:
             yield event.plain_result(f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n{'━'*30}\n未找到相关资源")
+
+    def _build_page(self, content_lines, header, expiry_time, page_num, total_pages):
+        """构建完整页面结构"""
+        # 页脚组件
+        footer = [
+            "━" * 28,
+            f"📑 第 {page_num}/{total_pages} 页",
+            f"⏰ 有效期至 {expiry_time}（北京时间）",
+            "💡 播放提示：",
+            "1. 移动端直接粘贴链接到浏览器",
+            "2. 电脑端推荐使用PotPlayer/VLC播放",
+            "3. 使用:/翻页 页码(跳转页面)",
+            "━" * 28
+        ]
+        
+        # 组合完整内容
+        full_content = '\n'.join(header + content_lines + footer)
+        
+        # 动态替换总页数
+        return (full_content.replace(f"/{total_pages}", f"/{total_pages}"), total_pages)
 
     @filter.command("vod")
     async def search_normal(self, event: AstrMessageEvent, text: str):
@@ -255,15 +190,10 @@ class VideoSearchPlugin(Star):
             yield event.plain_result(f"⚠️ 请输入有效页码（1-{page_data['total_pages']}）")
             return
 
-        # 动态更新有效期（北京时间）
-        old_expiry_timestamp = page_data['timestamp'] + 300
-        old_beijing_time = time.strftime("%H:%M", time.gmtime(old_expiry_timestamp + 8 * 3600))
-        new_expiry_timestamp = time.time() + 300
-        new_beijing_time = time.strftime("%H:%M", time.gmtime(new_expiry_timestamp + 8 * 3600))
-        
-        content = page_data["pages"][page_num-1].replace(
-            old_beijing_time,
-            new_beijing_time
+        # 更新有效期
+        new_expiry = time.strftime("%H:%M", time.gmtime(time.time() + 300 + 8*3600))
+        content = page_data["pages"][page_num-1][0].replace(
+            "有效期至", f"有效期至 {new_expiry}"
         )
         yield event.plain_result(content)
 
@@ -271,10 +201,7 @@ class VideoSearchPlugin(Star):
         """自动清理任务"""
         while True:
             now = time.time()
-            expired_users = [
-                uid for uid, data in self.user_pages.items()
-                if now - data["timestamp"] > 300
-            ]
+            expired_users = [uid for uid, data in self.user_pages.items() if now - data["timestamp"] > 300]
             for uid in expired_users:
                 del self.user_pages[uid]
             await asyncio.sleep(60)
