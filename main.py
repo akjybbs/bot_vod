@@ -130,7 +130,7 @@ class VideoSearchPlugin(Star):
                     # 构建页脚
                     page_footer = [
                         "━" * 30,
-                        f"📑 第 {len(pages)+1}/PAGES 页。 /vodpage 页码 (跳转页面)}",
+                        f"📑 第 {len(pages)+1}/PAGES 页。  /vodpage 页码(跳转页面)",
                         f"⏰ 有效期至 {time.strftime('%H:%M', time.localtime(time.time() + 300))}",
                         *footer_base
                     ]
