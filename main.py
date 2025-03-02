@@ -15,15 +15,15 @@ class VideoSearchPlugin(Star):
         self.api_url_vod = config.get("api_url_vod", "").split(',')
         self.api_url_18 = config.get("api_url_18", "").split(',')
         self.records = int(config.get("records", "3"))
-        self.user_pages = {}  # 用户分页数据存储
+        self.user_pages = {}
 
     def _get_user_identity(self, event: AstrMessageEvent) -> str:
-        """安全获取用户唯一标识（核心修复点）"""
+        """安全获取用户唯一标识（三级回退机制）"""
         try:
-            # 标准方法获取用户ID
-            if hasattr(event, 'get_sender_id'):
+            # 标准方法获取
+            if hasattr(event, 'get_sender_id') and callable(event.get_sender_id):
                 return event.get_sender_id()
-            # 兼容旧版微信平台事件格式
+            # 微信平台兼容
             elif hasattr(event, 'user') and hasattr(event.user, 'openid'):
                 return f"wechat-{event.user.openid}"
             # 通用备选方案
@@ -33,13 +33,13 @@ class VideoSearchPlugin(Star):
             return "unknown_user"
 
     async def _common_handler(self, event: AstrMessageEvent, api_urls: list, keyword: str):
-        """核心搜索逻辑（完整实现）"""
+        """核心搜索逻辑（完整分页实现）"""
         user_id = self._get_user_identity(event)
         total_attempts = len(api_urls)
         successful_apis = 0
         grouped_results = {}
         ordered_titles = []
-        
+
         # API请求处理
         for api_url in api_urls:
             api_url = api_url.strip()
@@ -88,7 +88,7 @@ class VideoSearchPlugin(Star):
                 result_lines.append(f"   🎬 {url}")
                 m3u8_flags.append(url.endswith('.m3u8'))
 
-        # 分页处理逻辑
+        # 分页处理逻辑（关键修复点）
         pages = []
         if result_lines:
             header_lines = [
@@ -96,19 +96,18 @@ class VideoSearchPlugin(Star):
                 f"📊 找到 {total_videos} 条资源",
                 "━" * 30
             ]
-            footer_lines = [
+            base_footer = [
                 "━" * 30,
                 "💡 播放提示：",
                 "1. 移动端直接粘贴链接到浏览器",
                 "2. 电脑端推荐使用PotPlayer/VLC播放",
                 "━" * 30
             ]
-            header_str = "\n".join(header_lines) + "\n"
-            footer_str = "\n" + "\n".join(footer_lines)
             
+            # 第一步：计算总页数
+            temp_pages = []
             current_start = 0
             while current_start < len(result_lines):
-                # 寻找分页断点
                 possible_ends = [
                     i for i, flag in enumerate(m3u8_flags[current_start:], current_start)
                     if flag
@@ -116,32 +115,49 @@ class VideoSearchPlugin(Star):
                 if not possible_ends:
                     break
                 
-                # 确定最佳分页位置
                 best_end = None
                 for end in reversed(possible_ends):
                     content_length = sum(
                         len(line) + 1 
                         for line in result_lines[current_start:end+1]
                     )
-                    if (len(header_str) + content_length + len(footer_str)) <= 1000:
+                    if (len('\n'.join(header_lines)) + content_length + len('\n'.join(base_footer))) <= 1000:
                         best_end = end
                         break
                 best_end = best_end or possible_ends[0]
-                
-                # 生成分页内容
-                page_content = (
-                    header_str +
-                    "\n".join(result_lines[current_start:best_end+1]) +
-                    footer_str
-                )
-                pages.append(page_content)
                 current_start = best_end + 1
+                temp_pages.append(best_end)
+            
+            total_pages = len(temp_pages)
+            
+            # 第二步：生成带正确页码的内容
+            current_start = 0
+            page_number = 1
+            for page_end in temp_pages:
+                # 构建当前页内容
+                header_str = '\n'.join(header_lines) + '\n'
+                content_str = '\n'.join(result_lines[current_start:page_end+1])
+                
+                # 动态生成footer
+                page_footer = [
+                    "━" * 30,
+                    f"📑 第 {page_number}/{total_pages} 页",
+                    f"⏰ 有效期至 {time.strftime('%H:%M', time.localtime(time.time() + 300))}",
+                    *base_footer
+                ]
+                footer_str = '\n'.join(page_footer)
+                
+                full_content = f"{header_str}{content_str}\n{footer_str}"
+                pages.append(full_content)
+                
+                current_start = page_end + 1
+                page_number += 1
 
             # 存储分页数据
             self.user_pages[user_id] = {
                 "pages": pages,
                 "timestamp": time.time(),
-                "total_pages": len(pages),
+                "total_pages": total_pages,
                 "search_info": f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个\n📊 找到 {total_videos} 条资源"
             }
             yield event.plain_result(pages[0])
@@ -168,7 +184,7 @@ class VideoSearchPlugin(Star):
 
     @filter.command("vodpage")
     async def paginate_results(self, event: AstrMessageEvent, text: str):
-        """分页查看结果"""
+        """分页查看结果（完整实现）"""
         user_id = self._get_user_identity(event)
         page_data = self.user_pages.get(user_id)
 
@@ -188,21 +204,22 @@ class VideoSearchPlugin(Star):
 
         # 构建分页消息
         page_content = page_data["pages"][page_num-1]
-        new_footer = [
-            "━" * 30,
-            f"📑 第 {page_num}/{page_data['total_pages']} 页",
-            f"⏰ 有效期至 {time.strftime('%H:%M', time.localtime(page_data['timestamp'] + 300))}",
-            "━" * 30
-        ]
         
-        # 替换footer内容
-        content_lines = page_content.split("\n")
-        content_lines[-6:-3] = new_footer  # 替换原有footer部分
+        # 动态更新有效期显示
+        content_lines = page_content.split('\n')
+        time_line = f"⏰ 有效期至 {time.strftime('%H:%M', time.localtime(page_data['timestamp'] + 300))}"
         
-        yield event.plain_result("\n".join(content_lines))
+        # 定位并替换页码行
+        for i in range(len(content_lines)):
+            if content_lines[i].startswith("📑 第"):
+                content_lines[i] = f"📑 第 {page_num}/{page_data['total_pages']} 页"
+            if content_lines[i].startswith("⏰ 有效期至"):
+                content_lines[i] = time_line
+        
+        yield event.plain_result('\n'.join(content_lines))
 
     async def _clean_expired_records(self):
-        """后台清理任务"""
+        """后台清理任务（完整实现）"""
         while True:
             now = time.time()
             expired_users = [
