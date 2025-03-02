@@ -109,7 +109,7 @@ class VideoSearchPlugin(Star):
                 header_length = len(header_content) + 1  # 包含换行符
                 base_footer = [
                     f"⏰ 有效期至 {beijing_time}（北京时间）",
-                     "📑 使用:/翻页 页码(跳转页面)",
+                     "📑 使用:/翻页 2(跳到第2页)",
                     *footer_base
                 ]
                 footer_content = '\n'.join(base_footer)
