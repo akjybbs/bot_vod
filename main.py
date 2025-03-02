@@ -90,13 +90,15 @@ class VideoSearchPlugin(Star):
             header = [
                 f"🔍 搜索 {total_attempts} 个源｜成功 {successful_apis} 个",
                 f"📊 找到 {sum(len(g['urls']) for g in structured_results)} 条资源",
-                "━" * 30
+                "━" * 25
             ]
             footer_base = [
+                "━" * 25,
                 "💡 播放提示：",
                 "1. 移动端直接粘贴链接到浏览器",
                 "2. 电脑端推荐使用PotPlayer/VLC播放",
-                "━" * 30
+                "3. /vodpage 页码(跳转页面)",
+                "━" * 25
             ]
 
             # 单标题特殊处理
@@ -129,7 +131,7 @@ class VideoSearchPlugin(Star):
 
                     # 构建页脚
                     page_footer = [
-                        "━" * 30,
+                        "━" * 25,
                         f"📑 第 {len(pages)+1}/PAGES 页。  /vodpage 页码(跳转页面)",
                         f"⏰ 有效期至 {time.strftime('%H:%M', time.localtime(time.time() + 300))}",
                         *footer_base
