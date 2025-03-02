@@ -8,7 +8,7 @@ import time
 import asyncio
 import re
 
-@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "2.1.0")
+@register("bot_vod", "appale", "视频搜索及分页功能（命令：/vod /vodd /翻页）", "2.0.2")
 class VideoSearchPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -17,30 +17,28 @@ class VideoSearchPlugin(Star):
         self.api_url_18 = config.get("api_url_18", "").split(',')
         self.records = int(config.get("records", "3"))
         self.user_pages = {}
-        self.MAX_PAGE_LENGTH = 980  # 预留页脚空间
-        self.MIN_CONTENT_LINES = 4  # 标题+至少3个URL
 
     def _get_user_identity(self, event: AstrMessageEvent) -> str:
-        """增强用户标识获取"""
+        """用户标识获取（增强版）"""
         try:
-            if hasattr(event, 'get_sender_id'):
-                return f"{event.platform}-{event.get_sender_id()}"
-            elif hasattr(event.user, 'openid'):
+            if hasattr(event, 'get_sender_id') and callable(event.get_sender_id):
+                return event.get_sender_id()
+            elif hasattr(event, 'user') and hasattr(event.user, 'openid'):
                 return f"wechat-{event.user.openid}"
-            return f"fallback-{hash(event)}"
+            return f"{event.platform}-{hash(event)}"
         except Exception as e:
-            self.context.logger.error(f"标识获取失败: {str(e)}")
+            self.context.logger.error(f"标识获取异常: {str(e)}")
             return "unknown_user"
 
     async def _common_handler(self, event: AstrMessageEvent, api_urls: list, keyword: str):
-        """优化版分页核心逻辑"""
+        """核心搜索逻辑（精确分页控制）"""
         user_id = self._get_user_identity(event)
         total_attempts = len(api_urls)
         successful_apis = 0
         grouped_results = {}
         ordered_titles = []
 
-        # API请求处理（保持原逻辑）
+        # API请求处理
         for api_url in api_urls:
             api_url = api_url.strip()
             if not api_url:
@@ -74,7 +72,7 @@ class VideoSearchPlugin(Star):
                         successful_apis += 1
                         
             except Exception as e:
-                self.context.logger.error(f"API请求异常: {str(e)}")
+                self.context.logger.error(f"API请求错误: {str(e)}")
                 continue
 
         # 构建结构化结果
@@ -86,7 +84,7 @@ class VideoSearchPlugin(Star):
                 "urls": entries
             })
 
-        # 智能分页处理器
+        # 智能分页处理（精确控制）
         pages = []
         if structured_results:
             header = [
@@ -103,7 +101,7 @@ class VideoSearchPlugin(Star):
                 "━" * 28
             ]
 
-            # 有效期计算
+            # 生成北京时间有效期
             expiry_timestamp = time.time() + 300
             beijing_time = time.strftime("%H:%M", time.gmtime(expiry_timestamp + 8 * 3600))
             time_footer = [
@@ -111,7 +109,7 @@ class VideoSearchPlugin(Star):
                 *footer_base
             ]
 
-            # 单标题处理
+            # 单标题特殊处理
             if len(structured_results) == 1:
                 page_content = [header[0], header[1], header[2]]
                 title_block = structured_results[0]
@@ -121,113 +119,77 @@ class VideoSearchPlugin(Star):
                 page_content.extend(time_footer)
                 pages.append('\n'.join(page_content))
             else:
-                # 多标题分页逻辑（优化核心）
+                # 多标题分页逻辑
                 current_page = []
-                current_length = len('\n'.join(header)) + 1  # 包含换行符
+                current_length = len('\n'.join(header)) + 1
+                current_titles = 0
                 last_m3u8_index = -1
 
                 def finalize_page():
                     nonlocal current_page, last_m3u8_index
-                    if not current_page:
-                        return False
-
-                    # 智能分割点选择
-                    split_index = len(current_page)
-                    if last_m3u8_index != -1 and last_m3u8_index < len(current_page)-1:
+                    if last_m3u8_index != -1:
                         split_index = last_m3u8_index + 1
-                    elif len(current_page) >= self.MIN_CONTENT_LINES:
-                        # 查找最近的标题分割点
-                        for i in reversed(range(len(current_page))):
-                            if re.match(r"^\d+\. 【", current_page[i]):
-                                split_index = i
-                                break
-
-                    final_content = current_page[:split_index]
-                    remaining_content = current_page[split_index:]
-
-                    # 剩余内容有效性检查
-                    if len(remaining_content) < (self.MIN_CONTENT_LINES // 2):
+                        final_content = current_page[:split_index]
+                        remaining_content = current_page[split_index:]
+                    else:
                         final_content = current_page
                         remaining_content = []
 
                     # 构建页脚
                     page_footer = [
                         "━" * 28,
-                        f"📑 第 {len(pages)+1}/PAGES 页",
+                        f"📑 第 {len(pages)+1}/PAGES 页。",
                         *time_footer
                     ]
                     
                     full_content = '\n'.join(header + final_content + page_footer)
                     pages.append(full_content)
                     
-                    # 更新状态
                     current_page = remaining_content
-                    if current_page:
-                        current_length = len('\n'.join(header)) + len('\n'.join(current_page)) + 1
-                        last_m3u8_index = -1
-                        return True
-                    return False
+                    current_length = len('\n'.join(header)) + len('\n'.join(current_page)) + 1
+                    last_m3u8_index = -1
+                    return len(remaining_content) > 0
 
                 for title_block in structured_results:
                     title_line = title_block["title"]
                     url_lines = [f"   🎬 {u['url']}" for u in title_block["urls"]]
                     
-                    # 预判整个块的长度
                     block_content = [title_line] + url_lines
                     block_length = len('\n'.join(block_content))
                     
-                    # 块级分页决策
-                    if current_length + block_length > self.MAX_PAGE_LENGTH:
+                    if current_titles >= 2 and current_length + block_length > 1000:
                         while finalize_page():
-                            pass
-                    
-                    # 添加标题行
+                            continue
+                        
                     current_page.append(title_line)
                     current_length += len(title_line) + 1
+                    current_titles += 1
                     
-                    # 批量添加URL（优化碎片）
-                    url_bulk = []
-                    bulk_length = 0
                     for i, url_line in enumerate(url_lines):
                         line_length = len(url_line) + 1
                         if title_block["urls"][i]["is_m3u8"]:
-                            last_m3u8_index = len(current_page) + len(url_bulk)
+                            last_m3u8_index = len(current_page)
                         
-                        # 批量提交逻辑
-                        if bulk_length + line_length < 200:  # 批量阈值
-                            url_bulk.append(url_line)
-                            bulk_length += line_length
-                        else:
-                            current_page.extend(url_bulk)
-                            current_length += bulk_length
-                            url_bulk = [url_line]
-                            bulk_length = line_length
-                        
-                        # 强制分页检查
-                        if current_length + bulk_length > self.MAX_PAGE_LENGTH:
-                            current_page.extend(url_bulk)
-                            current_length += bulk_length
-                            url_bulk = []
-                            bulk_length = 0
+                        if current_length + line_length > 1000:
                             if finalize_page():
-                                current_length = len('\n'.join(header)) + len('\n'.join(current_page)) + 1
-                    
-                    # 提交剩余批量
-                    if url_bulk:
-                        current_page.extend(url_bulk)
-                        current_length += bulk_length
+                                current_page.append(url_line)
+                                current_length += line_length
+                            else:
+                                current_page.append(url_line)
+                                current_length = len('\n'.join(header)) + line_length + 1
+                        else:
+                            current_page.append(url_line)
+                            current_length += line_length
                 
-                # 最终内容处理
-                while len(current_page) >= (self.MIN_CONTENT_LINES // 2):
-                    if not finalize_page():
-                        break
+                while len(current_page) > 0:
+                    finalize_page()
 
             # 更新总页数
             total_pages = len(pages)
             for i in range(len(pages)):
                 pages[i] = pages[i].replace("PAGES", str(total_pages))
                 
-            # 存储分页状态
+            # 存储分页数据
             self.user_pages[user_id] = {
                 "pages": pages,
                 "timestamp": time.time(),
@@ -258,38 +220,47 @@ class VideoSearchPlugin(Star):
 
     @filter.command("翻页")
     async def paginate_results(self, event: AstrMessageEvent, text: str):
-        """智能分页控制"""
+        """分页查看结果（精确控制）"""
         user_id = self._get_user_identity(event)
         page_data = self.user_pages.get(user_id)
 
-        # 有效性验证
         if not page_data or (time.time() - page_data["timestamp"]) > 300:
             yield event.plain_result("⏳ 搜索结果已过期（有效期5分钟），请重新搜索")
             return
 
-        # 页码处理
         try:
-            input_page = text.strip()
-            if input_page.startswith('第') and input_page.endswith('页'):
-                page_num = int(input_page[1:-1])
-            else:
-                page_num = int(input_page)
-            
+            page_num = int(text.strip())
             if not 1 <= page_num <= page_data["total_pages"]:
                 raise ValueError
-        except (ValueError, IndexError):
+        except ValueError:
             yield event.plain_result(f"⚠️ 请输入有效页码（1-{page_data['total_pages']}）")
             return
 
-        # 动态更新有效期
-        page_data['timestamp'] = time.time()
-        expiry_timestamp = page_data['timestamp'] + 300
-        beijing_time = time.strftime("%H:%M", time.gmtime(expiry_timestamp + 8 * 3600))
+        # 动态更新有效期（北京时间）
+        old_expiry_timestamp = page_data['timestamp'] + 300
+        old_beijing_time = time.strftime("%H:%M", time.gmtime(old_expiry_timestamp + 8 * 3600))
+        new_expiry_timestamp = time.time() + 300
+        new_beijing_time = time.strftime("%H:%M", time.gmtime(new_expiry_timestamp + 8 * 3600))
         
-        # 使用正则更新时效显示
-        updated_page = re.sub(
-            r"⏰ 有效期至 \d{2}:\d{2}",
-            f"⏰ 有效期至 {beijing_time}",
-            page_data["pages"][page_num-1]
+        content = page_data["pages"][page_num-1].replace(
+            old_beijing_time,
+            new_beijing_time
         )
-        yield event.plain_result(updated_page)
+        yield event.plain_result(content)
+
+    async def _clean_expired_records(self):
+        """自动清理任务"""
+        while True:
+            now = time.time()
+            expired_users = [
+                uid for uid, data in self.user_pages.items()
+                if now - data["timestamp"] > 300
+            ]
+            for uid in expired_users:
+                del self.user_pages[uid]
+            await asyncio.sleep(60)
+
+    async def activate(self):
+        """插件激活"""
+        await super().activate()
+        asyncio.create_task(self._clean_expired_records())
